@@ -160,45 +160,40 @@ void searchDll(BYTE* buffer, PResultInfo result, LPCWSTR filePath, char* dllsNam
         int fileDirLength = fileDir.length();
         DWORD vaule, vaule1;
         char* str;
+        int strLength;
         char ch;
+        int index = 0;
 
-        for (size_t i = rdataLength - 4; i > 0; --i) {
-            vaule = *(PDWORD)((PBYTE)rdata + i);
-            
-            if (vaule == 0x6c6c642e) {
-                ch = rdata[--i];
-                while (((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == '.' || ch == '-')) {
-                    ch = rdata[--i];
-                }
-
-                if (ch != 0)
-                    continue;
-
-                str = (char*)(rdata + i + 1);
-                memcpy(fileFullPath + fileDirLength, str, strlen(str) + 1);
-
-                if (filesystem::exists(filesystem::path(fileFullPath)) && containsIgnoreCase(dllsName, str) == NULL)
-                    result->postLoadDlls.push_back(_strdup(str));
-            }
-        }
-
-        for (size_t i = rdataLength - 8; i > 0; i -= 2) {
+        for (int i = rdataLength - 8; i > 0; --i, index = 0) {
             vaule = *(PDWORD)((PBYTE)rdata + i);
             vaule1 = *(PDWORD)((PBYTE)rdata + i + 4);
             
-            if (vaule1 == 0x6c && vaule == 0x6c0064) {
-                i -= 2;
+            if (vaule == 0x6c6c642e)
+                index = 1;
+            else if (vaule1 == 0x6c && vaule == 0x6c0064)
+                index = 2;
+
+            if (index > 0) {
+                i -= index;
                 ch = rdata[i];
                 while (((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == '.' || ch == '-')) {
-                    i -= 2;
+                    i -= index;
                     ch = rdata[i];
                 }
 
                 if (ch != 0)
                     continue;
 
-                str = ConvertWideToMultiByte((wchar_t*)(rdata + i + 2));
-                memcpy(fileFullPath + fileDirLength, str, strlen(str)+1);
+                if (index == 1)
+                    str = (char*)(rdata + i + 1);
+                else
+                    str = ConvertWideToMultiByte((wchar_t*)(rdata + i + 2));
+
+                strLength = strlen(str);
+                if (strLength > 35);
+                    continue;
+
+                memcpy(fileFullPath + fileDirLength, str, strLength + 1);
 
                 if (filesystem::exists(filesystem::path(fileFullPath)) && containsIgnoreCase(dllsName, str) == NULL)
                     result->postLoadDlls.push_back(_strdup(str));

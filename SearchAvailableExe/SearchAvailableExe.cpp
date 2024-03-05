@@ -53,14 +53,15 @@ int main() {
     }
 
     // 遍历系统的所有盘符
-    /*for (char drive = 'A'; drive <= 'Z'; ++drive) {
+    for (char drive = 'A'; drive <= 'Z'; ++drive) {
         wstring rootDirectory = wstring(1, drive) + L":";
         ListExecutableFiles(rootDirectory);
-    }*/
+    }
 
-    wstring rootDirectory = L"D:\\Code\\TeamWorkspace\\beacon\\白+黑 嵌入生成";
+    //wstring rootDirectory = L"D:\\Code\\TeamWorkspace\\beacon\\白+黑 嵌入生成";
     //wstring rootDirectory = L"C:\\Program Files\\Microsoft Visual Studio\\2022\\Professional\\VC\\Tools\\Llvm\\x64\\bin";
-    ListExecutableFiles(rootDirectory);
+    /*wstring rootDirectory = L"D:\\Users\\MaoKu\\AppData\\Local\\Programs\\Microsoft VS Code\\bin";
+    ListExecutableFiles(rootDirectory);*/
 
     for (const auto& result : results) {
         outputFile << result->filePath << endl;
