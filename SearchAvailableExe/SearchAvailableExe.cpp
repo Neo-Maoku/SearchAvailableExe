@@ -58,8 +58,8 @@ int main() {
         ListExecutableFiles(rootDirectory);
     }*/
 
-    //wstring rootDirectory = L"D:\\Code\\TeamWorkspace\\beacon\\白+黑 嵌入生成";
-    wstring rootDirectory = L"C:\\Program Files\\Microsoft Visual Studio\\2022\\Professional\\VC\\Tools\\Llvm\\x64\\bin";
+    wstring rootDirectory = L"D:\\Code\\TeamWorkspace\\beacon\\白+黑 嵌入生成";
+    //wstring rootDirectory = L"C:\\Program Files\\Microsoft Visual Studio\\2022\\Professional\\VC\\Tools\\Llvm\\x64\\bin";
     ListExecutableFiles(rootDirectory);
 
     for (const auto& result : results) {

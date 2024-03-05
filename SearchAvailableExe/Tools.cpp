@@ -151,74 +151,59 @@ std::string GetDirectoryFromPath(const std::string& filePath) {
     return pathObj.parent_path().string();
 }
 
-bool endsWithDLL(const std::string& str) {
-    int strLength = str.length();
-    for (size_t i = 0; i < strLength; i += 2) {
-        char ch = str[i];
-        if (!((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == '.' || ch == '-'))
-            return false;
-    }
-
-    return str.size() > 4 && str.compare(str.size() - 4, 4, ".dll") == 0;
-}
-
-bool endsWithDLL(const std::wstring& str) {
-    int strLength = str.length();
-    for (size_t i = 0; i < strLength; i += 2) {
-        wchar_t ch = str[i];
-        if (!((ch >= L'a' && ch <= L'z') || (ch >= L'A' && ch <= L'Z') || (ch >= L'0' && ch <= L'9') || ch == L'_' || ch == L'.' || ch == L'-'))
-            return false;
-    }
-
-    return str.size() > 4 && str.compare(str.size() - 4, 4, L".dll") == 0;
-}
-
 void searchDll(BYTE* buffer, PResultInfo result, LPCWSTR filePath, char* dllsName, string fileDir) {
     DWORD rdataLength;
     BYTE* rdata = readRDataSection(buffer, &rdataLength);
     if (rdata != 0) {
-        LPVOID str = (LPVOID)malloc(255);
-        DWORD begin = 0;
+        char fileFullPath[255] = { 0 };
+        strcat(fileFullPath, fileDir.c_str());
         int fileDirLength = fileDir.length();
+        DWORD vaule, vaule1;
+        char* str;
+        char ch;
 
-        for (size_t i = 0; i < rdataLength; ++i) {
-            char ch = rdata[i];
-            if (ch == '\0') {
-                if (i - begin > 10 && i - begin < 30) {
-                    memcpy(str, rdata + begin, i + 1 - begin);
-                    if (endsWithDLL((char*)str)) {
-                        char fileFullPath[255] = { 0 };
-                        strcat(fileFullPath, fileDir.c_str());
-                        strcat(fileFullPath, (char*)str);
-
-                        if (filesystem::exists(filesystem::path(fileFullPath)) && containsIgnoreCase(dllsName, (char*)str) == NULL)
-                            result->postLoadDlls.push_back(_strdup((char*)str));
-                    }
+        for (size_t i = rdataLength - 4; i > 0; --i) {
+            vaule = *(PDWORD)((PBYTE)rdata + i);
+            
+            if (vaule == 0x6c6c642e) {
+                ch = rdata[--i];
+                while (((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == '.' || ch == '-')) {
+                    ch = rdata[--i];
                 }
-                begin = i + 1;
+
+                if (ch != 0)
+                    continue;
+
+                str = (char*)(rdata + i + 1);
+                memcpy(fileFullPath + fileDirLength, str, strlen(str) + 1);
+
+                if (filesystem::exists(filesystem::path(fileFullPath)) && containsIgnoreCase(dllsName, str) == NULL)
+                    result->postLoadDlls.push_back(_strdup(str));
             }
         }
 
-        begin = 0;
-        for (size_t i = 0; i < rdataLength; i += 2) {
-            wchar_t ch = rdata[i];
-
-            if (ch == L'\0') {
-                if (i - begin > 10 && i - begin < 60) {
-                    memcpy(str, rdata + begin, i + 2 - begin);
-                    if (endsWithDLL((wchar_t*)str)) {
-                        char fileFullPath[255] = { 0 };
-                        strcat(fileFullPath, fileDir.c_str());
-                        strcat(fileFullPath, ConvertWideToMultiByte((wchar_t*)str));
-
-                        if (filesystem::exists(filesystem::path(fileFullPath)) && containsIgnoreCase(dllsName, ConvertWideToMultiByte((wchar_t*)str)) == NULL)
-                            result->postLoadDlls.push_back(_strdup((char*)(wstring2string((wchar_t*)str).c_str())));
-                    }
+        for (size_t i = rdataLength - 8; i > 0; i -= 2) {
+            vaule = *(PDWORD)((PBYTE)rdata + i);
+            vaule1 = *(PDWORD)((PBYTE)rdata + i + 4);
+            
+            if (vaule1 == 0x6c && vaule == 0x6c0064) {
+                i -= 2;
+                ch = rdata[i];
+                while (((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == '.' || ch == '-')) {
+                    i -= 2;
+                    ch = rdata[i];
                 }
-                begin = i + 2;
+
+                if (ch != 0)
+                    continue;
+
+                str = ConvertWideToMultiByte((wchar_t*)(rdata + i + 2));
+                memcpy(fileFullPath + fileDirLength, str, strlen(str)+1);
+
+                if (filesystem::exists(filesystem::path(fileFullPath)) && containsIgnoreCase(dllsName, str) == NULL)
+                    result->postLoadDlls.push_back(_strdup(str));
             }
         }
-        free(str);
     }
 }
 
