@@ -20,4 +20,14 @@ typedef struct {
     vector<char*> postLoadDlls;
 } ResultInfo, * PResultInfo;
 
+#define STRING_MAX 256
+typedef struct {
+    char  input[STRING_MAX];
+    char  output[STRING_MAX];
+    bool  isWrite;
+    int   dllCount;
+    int   bit;
+} ARG_CONFIG, * PARG_CONFIG;
+
 BOOL VerifyFileSignature(LPCWSTR filePath);
+std::wstring ConvertToWideString(const char* input);

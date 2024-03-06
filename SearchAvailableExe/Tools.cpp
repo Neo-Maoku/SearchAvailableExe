@@ -155,7 +155,7 @@ void searchDll(BYTE* buffer, PResultInfo result, LPCWSTR filePath, char* dllsNam
     DWORD rdataLength;
     BYTE* rdata = readRDataSection(buffer, &rdataLength);
     if (rdata != 0) {
-        char fileFullPath[255] = { 0 };
+        char fileFullPath[0x255] = { 0 };
         strcat(fileFullPath, fileDir.c_str());
         int fileDirLength = fileDir.length();
         DWORD vaule, vaule1;
@@ -190,7 +190,7 @@ void searchDll(BYTE* buffer, PResultInfo result, LPCWSTR filePath, char* dllsNam
                     str = ConvertWideToMultiByte((wchar_t*)(rdata + i + 2));
 
                 strLength = strlen(str);
-                if (strLength > 35);
+                if (str[strLength-1] != 'l')
                     continue;
 
                 memcpy(fileFullPath + fileDirLength, str, strLength + 1);
@@ -264,20 +264,8 @@ void printImportTableInfo(BYTE* buffer, PResultInfo result, LPCWSTR filePath)
     while (ImportTable->Name)
     {
         char* pName = (char*)(rvaToFOA(buffer, ImportTable->Name) + buffer);
-        DWORD nameSize = sizeof(known_dlls) / 4;
-        bool flag = true;
-        
-        for (int i = 0; i < nameSize; i++)
-        {
-            if (containsIgnoreCase(pName, known_dlls[i]) != NULL)
-            {
-                flag = false;
-                break;
-            }
-        }
 
         PIMAGE_THUNK_DATA INT = PIMAGE_THUNK_DATA(rvaToFOA(buffer, ImportTable->OriginalFirstThunk) + buffer);
-        PIMAGE_THUNK_DATA IAT = PIMAGE_THUNK_DATA(rvaToFOA(buffer, ImportTable->FirstThunk) + buffer);
         PIMAGE_IMPORT_BY_NAME temp = { 0 };
         int count = 0;
         while (INT->u1.AddressOfData)//当遍历到的是最后一个是时候是会为0，所以随便遍历一个就好
@@ -300,9 +288,6 @@ void printImportTableInfo(BYTE* buffer, PResultInfo result, LPCWSTR filePath)
         strcat(fileFullPath, pName);
 
         if (filesystem::exists(filesystem::path(fileFullPath)))
-            flag = true;
-        
-        if (flag)
             result->preLoadDlls.push_back(_strdup(pName));
 
         ImportTable++;
@@ -368,7 +353,7 @@ BOOL VerifyFileSignature(LPCWSTR filePath) {
         return FALSE;
     }
 
-    /*string md5 = calculateMD5(pbFile, dwFileSize);
+   /* string md5 = calculateMD5(pbFile, dwFileSize);
     {
         std::lock_guard<std::mutex> lock(mtx);
         if (md5Map.find(md5) != md5Map.end())
@@ -398,4 +383,14 @@ BOOL VerifyFileSignature(LPCWSTR filePath) {
     free(pbFile);
 
     return TRUE;
+}
+
+std::wstring ConvertToWideString(const char* input) {
+    int length = strlen(input) + 1;
+    int requiredLength = MultiByteToWideChar(CP_ACP, 0, input, length, NULL, 0);
+    wchar_t* buffer = new wchar_t[requiredLength];
+    MultiByteToWideChar(CP_ACP, 0, input, length, buffer, requiredLength);
+    std::wstring result(buffer);
+    delete[] buffer;
+    return result;
 }
