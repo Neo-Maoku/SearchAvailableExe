@@ -58,11 +58,14 @@ bool compare(PResultInfo a, PResultInfo b) {
 }
 
 bool isUnwanted(const PResultInfo result) {
+    int preSize = result->preLoadDlls.size() == 0 ? 999 : result->preLoadDlls.size();
+    int postSize = result->postLoadDlls.size() == 0 ? 999 : result->postLoadDlls.size();
+
     if (c.isWrite == 1 && result->isWrite == 0)
         return true;
     if ((c.bit == 32 && result->bit != 32) || (c.bit == 64 && result->bit != 64))
         return true;
-    if (c.dllCount < result->postLoadDlls.size() && c.dllCount < result->preLoadDlls.size())
+    if (c.dllCount < preSize && c.dllCount < postSize)
         return true;
 
     return false;
