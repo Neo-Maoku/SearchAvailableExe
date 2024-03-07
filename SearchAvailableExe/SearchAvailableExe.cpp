@@ -104,7 +104,7 @@ static void usage(void) {
     printf("       -o,--output: <path>                     Output file to save dll info. Default is output command.\n");
     printf("       -i,--input: <path>                      Input search path. Default traverse all disks.\n");
     printf("       -w,--write: <bool>                      Whether to only output information about directories with write permissions, with the default value being 'no'.\n");
-    printf("       -c,--count: <count>                     Controls the output of the number of DLLs loaded by white programs, only outputting if the count is less than or equal to a specified value. The default value is 5.\n");
+    printf("       -c,--count: <count>                     Controls the output of the number of DLLs loaded by white programs, only outputting if the count is less than or equal to a specified value. The default value is 1.\n");
     printf("       -b,--bit: <count>                       Select the output bitness, supporting 32, 64, and 96 bits. The default is 96 bits, while also outputting information for 32 and 64-bit white programs.\n");
     exit(0);
 }
@@ -113,7 +113,7 @@ int main(int argc, char* argv[]) {
     
     memset(&c, 0, sizeof(c));
     
-    c.dllCount = 5;
+    c.dllCount = 1;
     c.bit = 96;
 
     get_opt(argc, argv, OPT_TYPE_NONE, NULL, "h;?", "help", usage);
@@ -148,6 +148,9 @@ int main(int argc, char* argv[]) {
     sort(results.begin(), results.end(), compare);
 
     results.erase(std::remove_if(results.begin(), results.end(), isUnwanted), results.end());
+
+    //运行目标程序，判断是否会加载hook的dll
+    RunPE();
 
     for (const auto& result : results) {
         *output << result->filePath << endl;

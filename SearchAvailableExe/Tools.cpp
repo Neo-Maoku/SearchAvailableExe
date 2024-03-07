@@ -1,54 +1,8 @@
 #include "Tools.h"
 
 extern vector<PResultInfo> results;
-std::unordered_map<std::string, std::wstring> md5Map;
+extern ARG_CONFIG c;
 std::mutex mtx;
-
-std::string calculateMD5(BYTE* buffer, DWORD bytesRead) {
-    std::string md5;
-
-    // 初始化加密API
-    HCRYPTPROV hProv = 0;
-    if (!CryptAcquireContext(&hProv, NULL, NULL, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT)) {
-        std::cerr << "CryptAcquireContext failed\n";
-        return md5;
-    }
-
-    HCRYPTHASH hHash = 0;
-    if (!CryptCreateHash(hProv, CALG_MD5, 0, 0, &hHash)) {
-        std::cerr << "CryptCreateHash failed\n";
-        CryptReleaseContext(hProv, 0);
-        return md5;
-    }
-
-    // 读取文件并更新哈希值
-    if (!CryptHashData(hHash, buffer, bytesRead, 0)) {
-        std::cerr << "CryptHashData failed\n";
-        CryptDestroyHash(hHash);
-        CryptReleaseContext(hProv, 0);
-        return md5;
-    }
-
-    // 获取哈希值
-    DWORD hashSize = 16; // MD5 哈希值大小为 16 字节
-    BYTE hashBuffer[16];
-    if (CryptGetHashParam(hHash, HP_HASHVAL, hashBuffer, &hashSize, 0)) {
-        std::stringstream ss;
-        ss << std::hex << std::setfill('0');
-        for (int i = 0; i < hashSize; ++i) {
-            ss << std::setw(2) << static_cast<unsigned int>(hashBuffer[i]);
-        }
-        md5 = ss.str();
-    }
-    else {
-        std::cerr << "CryptGetHashParam failed\n";
-    }
-
-    CryptDestroyHash(hHash);
-    CryptReleaseContext(hProv, 0);
-
-    return md5;
-}
 
 string wstring2string(wstring wstr)
 {
@@ -221,6 +175,7 @@ void printImportTableInfo(BYTE* buffer, PResultInfo result, LPCWSTR filePath)
 {
     const char* known_dlls[] = {"kernel32", "wow64cpu", "wowarmhw", "xtajit", "advapi32", "clbcatq", "combase", "COMDLG32", "coml2", "difxapi", "gdi32", "gdiplus", "IMAGEHLP", "IMM32", "MSCTF", "MSVCRT", "NORMALIZ", "NSI", "ole32", "OLEAUT32", "PSAPI", "rpcrt4", "sechost", "Setupapi", "SHCORE", "SHELL32", "SHLWAPI", "user32", "WLDAP32", "wow64cpu", "wow64", "wow64base", "wow64con", "wow64win", "WS2_32", "xtajit64"};
     string fileDir = GetDirectoryFromPath(ConvertWideToMultiByte(filePath)) + "\\";
+    result->fileDir = fileDir;
 
     if (hasWritePermission(fileDir))
         result->isWrite = true;
@@ -352,15 +307,6 @@ BOOL VerifyFileSignature(LPCWSTR filePath) {
         free(pbFile);
         return FALSE;
     }
-
-   /* string md5 = calculateMD5(pbFile, dwFileSize);
-    {
-        std::lock_guard<std::mutex> lock(mtx);
-        if (md5Map.find(md5) != md5Map.end())
-            return FALSE;
-
-        md5Map[md5] = filePath;
-    }*/
     
     ResultInfo* result = new ResultInfo;
     result->filePath = wstring2string(filePath);
@@ -385,6 +331,145 @@ BOOL VerifyFileSignature(LPCWSTR filePath) {
     return TRUE;
 }
 
+int readFileContext(string path, char** contexts)
+{
+    ifstream inFile(path, std::ios::binary);
+    if (!inFile) {
+        printf("%s open fail\n", path.c_str());
+        return -1;
+    }
+
+    inFile.seekg(0, std::ios::end);
+    std::streamsize payloadFileSize = inFile.tellg();
+    inFile.seekg(0, std::ios::beg);
+
+    *contexts = new char[payloadFileSize];
+
+    if (!inFile.read(*contexts, payloadFileSize)) {
+        printf("%s payloadBuffer read fail\n", path.c_str());
+        delete[] contexts;
+        return -1;
+    }
+
+    inFile.close();
+
+    return payloadFileSize;
+}
+
+void saveFile(string filePath, char* buffer, DWORD fileSize)
+{
+    std::ofstream outFile;
+    outFile.open(filePath, std::ios::binary | std::ios::trunc);
+    outFile.write(buffer, fileSize);
+    outFile.close();
+}
+
+int fixExportTable(string targetFilePath, string sourceFilePath)
+{
+    char* targetBuffer;
+    DWORD fileSize = readFileContext(targetFilePath, &targetBuffer);
+
+    PIMAGE_DOS_HEADER pDH = (PIMAGE_DOS_HEADER)targetBuffer;
+    PIMAGE_NT_HEADERS pNtH = (PIMAGE_NT_HEADERS)((DWORD)pDH + pDH->e_lfanew);
+    PIMAGE_OPTIONAL_HEADER pOH = &pNtH->OptionalHeader;
+    IMAGE_DATA_DIRECTORY exportDirectory;
+
+    if (*(PWORD)((size_t)pDH + pDH->e_lfanew + 0x18) == IMAGE_NT_OPTIONAL_HDR32_MAGIC)
+    {
+        PIMAGE_NT_HEADERS32  pNtH32 = PIMAGE_NT_HEADERS32((size_t)pDH + pDH->e_lfanew);
+        PIMAGE_OPTIONAL_HEADER32 pOH32 = &pNtH32->OptionalHeader;
+
+        exportDirectory = pOH32->DataDirectory[0];
+    }
+    else {
+        PIMAGE_NT_HEADERS64 pNtH64 = PIMAGE_NT_HEADERS64((size_t)pDH + pDH->e_lfanew);
+        PIMAGE_OPTIONAL_HEADER64 pOH64 = &pNtH64->OptionalHeader;
+
+        exportDirectory = pOH64->DataDirectory[0];
+    }
+
+    IMAGE_EXPORT_DIRECTORY* exportDir = (IMAGE_EXPORT_DIRECTORY*)(targetBuffer + rvaToFOA(targetBuffer, exportDirectory.VirtualAddress));
+
+    DWORD* nameRVAs = (DWORD*)(targetBuffer + rvaToFOA(targetBuffer, exportDir->AddressOfNames));
+
+    char* sourceBuffer;
+    readFileContext(sourceFilePath, &sourceBuffer);
+
+    pDH = (PIMAGE_DOS_HEADER)sourceBuffer;
+    pNtH = (PIMAGE_NT_HEADERS)((DWORD)pDH + pDH->e_lfanew);
+    pOH = &pNtH->OptionalHeader;
+
+    if (*(PWORD)((size_t)pDH + pDH->e_lfanew + 0x18) == IMAGE_NT_OPTIONAL_HDR32_MAGIC)
+    {
+        PIMAGE_NT_HEADERS32  pNtH32 = PIMAGE_NT_HEADERS32((size_t)pDH + pDH->e_lfanew);
+        PIMAGE_OPTIONAL_HEADER32 pOH32 = &pNtH32->OptionalHeader;
+
+        exportDirectory = pOH32->DataDirectory[0];
+    }
+    else {
+        PIMAGE_NT_HEADERS64 pNtH64 = PIMAGE_NT_HEADERS64((size_t)pDH + pDH->e_lfanew);
+        PIMAGE_OPTIONAL_HEADER64 pOH64 = &pNtH64->OptionalHeader;
+
+        exportDirectory = pOH64->DataDirectory[0];
+    }
+
+    IMAGE_EXPORT_DIRECTORY* exportDir_source = (IMAGE_EXPORT_DIRECTORY*)(sourceBuffer + rvaToFOA(sourceBuffer, exportDirectory.VirtualAddress));
+
+    DWORD* nameRVAs_source = (DWORD*)(sourceBuffer + rvaToFOA(sourceBuffer, exportDir_source->AddressOfNames));
+
+    for (int i = 0; i < exportDir_source->NumberOfNames; i++)
+    {
+        DWORD nameRVA_source = nameRVAs_source[i];
+        char* exportFunctionName_source = sourceBuffer + rvaToFOA(sourceBuffer, nameRVA_source);
+
+        DWORD nameRVA = nameRVAs[i];
+        char* exportFunctionName = targetBuffer + rvaToFOA(targetBuffer, nameRVA);
+
+        memcpy(exportFunctionName, exportFunctionName_source, strlen(exportFunctionName_source)+1);
+    }
+
+    saveFile(targetFilePath, targetBuffer, fileSize);
+
+    delete[] targetBuffer;
+    delete[] sourceBuffer;
+
+    return 0;
+}
+
+std::string GetCurrentPath() {
+    char buffer[MAX_PATH];
+    GetModuleFileNameA(NULL, buffer, MAX_PATH);
+    std::string::size_type pos = std::string(buffer).find_last_of("\\/");
+    return std::string(buffer).substr(0, pos);
+}
+
+std::string GenerateRandomFolderName() {
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<int> dist(1, 1000000);
+
+    // 生成随机字符串作为文件夹名
+    const char charset[] = "ghijklmnopq_rstuvwxyz0123456789abcdef";
+    const size_t charsetSize = sizeof(charset) - 1;
+    const size_t folderNameLength = 10; // 文件夹名长度
+    std::string folderName;
+    for (size_t i = 0; i < folderNameLength; ++i) {
+        folderName += charset[dist(gen) % charsetSize];
+    }
+    return folderName;
+}
+
+string CreateRandomFolder(const std::string& basePath) {
+    std::string randomFolderName = GenerateRandomFolderName();
+    std::string folderPath = basePath + "\\" + randomFolderName;
+
+    if (CreateDirectoryA(folderPath.c_str(), NULL) || GetLastError() == ERROR_ALREADY_EXISTS) {
+        return folderPath;
+    }
+
+    return 0;
+}
+
 std::wstring ConvertToWideString(const char* input) {
     int length = strlen(input) + 1;
     int requiredLength = MultiByteToWideChar(CP_ACP, 0, input, length, NULL, 0);
@@ -393,4 +478,139 @@ std::wstring ConvertToWideString(const char* input) {
     std::wstring result(buffer);
     delete[] buffer;
     return result;
+}
+
+string CopyFileToFolder(const std::string& sourceFilePath, const std::string& targetFolderPath, bool isNeedHook, bool isPreDll, int bit) {
+    std::string targetFilePath = targetFolderPath + "\\" + sourceFilePath.substr(sourceFilePath.find_last_of("\\/") + 1);
+
+    if (isNeedHook) {
+        std::string hookFilePath = GetCurrentPath() + "\\TestLoad_x86.dll";
+        if (bit == 64)
+            hookFilePath = GetCurrentPath() + "\\TestLoad_x64.dll";
+
+        if (isPreDll) {
+            CopyFileA(hookFilePath.c_str(), targetFilePath.c_str(), FALSE);
+            fixExportTable(targetFilePath, sourceFilePath);
+        }
+        else {
+            CopyFileA(hookFilePath.c_str(), targetFilePath.c_str(), FALSE);
+        }
+    }
+    else {
+        CopyFileA(sourceFilePath.c_str(), targetFilePath.c_str(), FALSE);
+    }
+
+    return targetFilePath;
+}
+
+bool DeleteDirectory(const string& path) {
+    WIN32_FIND_DATAA findData;
+    HANDLE hFind = FindFirstFileA((path + "\\*").c_str(), &findData);
+
+    if (hFind == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+
+    do {
+        if (strcmp(findData.cFileName, ".") != 0 && strcmp(findData.cFileName, "..") != 0) {
+            string filePath = path + "\\" + findData.cFileName;
+            if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+                // 递归删除子目录
+                if (!DeleteDirectory(filePath)) {
+                    FindClose(hFind);
+                    return false;
+                }
+            }
+            else {
+                // 删除文件
+                DWORD fileAttributes = GetFileAttributesA(filePath.c_str());
+                !SetFileAttributesA(filePath.c_str(), fileAttributes & ~FILE_ATTRIBUTE_READONLY);
+
+                if (!DeleteFileA(filePath.c_str())) {
+                    FindClose(hFind);
+                    return false;
+                }
+            }
+        }
+    } while (FindNextFileA(hFind, &findData) != 0);
+
+    FindClose(hFind);
+
+    // 删除空目录
+    if (!RemoveDirectoryA(path.c_str())) {
+        return false;
+    }
+
+    return true;
+}
+
+int TestCreateProcess(string runFilePath) {
+    // 定义进程信息结构体
+    STARTUPINFOA si = { sizeof(si) };
+    PROCESS_INFORMATION pi;
+
+    // 创建进程
+    if (!CreateProcessA(
+        nullptr,                        // 指向可执行文件名的指针（在这里，nullptr表示使用当前可执行文件）
+        (char*)runFilePath.c_str(),     // 可执行文件的路径
+        nullptr,                        // 安全属性
+        nullptr,                        // 安全属性
+        FALSE,                          // 指定是否继承句柄
+        CREATE_NO_WINDOW,               // 指定窗口显示方式（这里指定为无窗口）
+        nullptr,                        // 指定新进程的环境块
+        nullptr,                        // 指定新进程的当前目录
+        &si,                            // STARTUPINFO 结构体
+        &pi)) {                         // 接收新进程信息的 PROCESS_INFORMATION 结构体
+        std::cerr << "Failed to create process. Error code: " << GetLastError() << std::endl;
+        return 1;
+    }
+
+    // 等待进程结束
+    WaitForSingleObject(pi.hProcess, 2 * 1000);
+
+    TerminateProcess(pi.hProcess, 0);
+
+    // 获取进程的退出码
+    DWORD exitCode;
+    GetExitCodeProcess(pi.hProcess, &exitCode);
+
+    // 输出退出码
+    std::cout << runFilePath << " Process exited with code: " << exitCode << std::endl;
+
+    // 关闭进程和线程句柄
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+
+    return 0;
+}
+
+void RunPE() {
+    std::string currentPath = GetCurrentPath();
+
+    for (const auto& result : results) {
+        string folderPath = CreateRandomFolder(currentPath);
+
+        string runFilePath = CopyFileToFolder(result->filePath, folderPath, false, false, result->bit);
+
+        bool flag;
+        if (result->preLoadDlls.size() > 0) {
+            flag = result->preLoadDlls.size() <= c.dllCount ? true : false;
+
+            for (const auto& dll : result->preLoadDlls) {
+                CopyFileToFolder(result->fileDir + dll, folderPath, flag, true, result->bit);
+            }
+        }
+
+        if (result->postLoadDlls.size() > 0) {
+            flag = result->postLoadDlls.size() <= c.dllCount ? true : false;
+
+            for (const auto& dll : result->postLoadDlls) {
+                CopyFileToFolder(result->fileDir + dll, folderPath, flag, false, result->bit);
+            }
+        }
+
+        TestCreateProcess(runFilePath);
+
+        DeleteDirectory(folderPath.c_str());
+    }
 }

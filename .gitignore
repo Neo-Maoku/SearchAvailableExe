@@ -5,3 +5,6 @@
 /SearchAvailableExe/Release
 /x64
 /SearchAvailableExe/x64
+/TestLoad/Debug
+/TestLoad/Release
+/TestLoad/x64

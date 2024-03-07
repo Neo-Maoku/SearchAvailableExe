@@ -9,12 +9,14 @@
 #include <algorithm>
 #include <filesystem>
 #include <mutex>
+#include <random>
 
 using namespace std;
 
 typedef struct {
     bool isWrite;
     string filePath;
+    string fileDir;
     int bit;
     vector<char*> preLoadDlls;
     vector<char*> postLoadDlls;
@@ -31,3 +33,4 @@ typedef struct {
 
 BOOL VerifyFileSignature(LPCWSTR filePath);
 std::wstring ConvertToWideString(const char* input);
+void RunPE();
