@@ -48,6 +48,50 @@ DWORD rvaToFOA(LPVOID buf, int rva)
     return 0;
 }
 
+DWORD foaToRVA(LPVOID lpBuffer, DWORD FOA) {
+    PIMAGE_DOS_HEADER pDH = (PIMAGE_DOS_HEADER)lpBuffer;
+    PIMAGE_FILE_HEADER pFile;
+    PIMAGE_SECTION_HEADER pFirstSection;
+
+    if (*(PWORD)((size_t)pDH + pDH->e_lfanew + 0x18) == IMAGE_NT_OPTIONAL_HDR32_MAGIC)
+    {
+        PIMAGE_NT_HEADERS32  pNtH32 = PIMAGE_NT_HEADERS32((size_t)pDH + pDH->e_lfanew);
+        PIMAGE_OPTIONAL_HEADER32 pOH32 = &pNtH32->OptionalHeader;
+        pFile = (PIMAGE_FILE_HEADER)((DWORD)pNtH32 + 4);
+        pFirstSection = PIMAGE_SECTION_HEADER((DWORD)pOH32 + pFile->SizeOfOptionalHeader);
+
+        if (FOA < pOH32->SizeOfHeaders || pOH32->FileAlignment == pOH32->SectionAlignment) {
+            return FOA;
+        }
+    }
+    else {
+        PIMAGE_NT_HEADERS64 pNtH64 = PIMAGE_NT_HEADERS64((size_t)pDH + pDH->e_lfanew);
+        PIMAGE_OPTIONAL_HEADER64 pOH64 = &pNtH64->OptionalHeader;
+        pFile = (PIMAGE_FILE_HEADER)((DWORD)pNtH64 + 4);
+        pFirstSection = PIMAGE_SECTION_HEADER((DWORD)pOH64 + pFile->SizeOfOptionalHeader);
+
+        if (FOA < pOH64->SizeOfHeaders || pOH64->FileAlignment == pOH64->SectionAlignment) {
+            return FOA;
+        }
+    }
+
+    PIMAGE_SECTION_HEADER pSectionHeader = pFirstSection;
+
+    for (int i = 0; pFile->NumberOfSections; i++) {
+        if (FOA >= pSectionHeader->PointerToRawData &&
+            FOA < pSectionHeader->PointerToRawData + pSectionHeader->SizeOfRawData) {
+            /*获取FOA和节区文件地址的偏移*/
+            DWORD relSectionFileAdd = FOA - pSectionHeader->PointerToRawData;
+            /*偏移加节区的VA得到RVA*/
+            return relSectionFileAdd + pSectionHeader->VirtualAddress;
+        }
+        /*指向下一个节表*/
+        pSectionHeader = (PIMAGE_SECTION_HEADER)((DWORD)pSectionHeader + IMAGE_SIZEOF_SECTION_HEADER);
+    }
+
+    return 0;
+}
+
 bool containsIgnoreCase(const std::string& str1, const std::string& str2) {
     std::string str1Lower = str1;
     std::string str2Lower = str2;
@@ -60,7 +104,7 @@ bool containsIgnoreCase(const std::string& str1, const std::string& str2) {
     return str1Lower.find(str2Lower) != std::string::npos;
 }
 
-BYTE* readRDataSection(BYTE* buffer, PDWORD rdataLength) {
+BYTE* readSectionData(BYTE* buffer, PDWORD rdataLength, char* secName) {
     PIMAGE_DOS_HEADER dosHeader = reinterpret_cast<PIMAGE_DOS_HEADER>(buffer);
     if (dosHeader->e_magic != IMAGE_DOS_SIGNATURE) {
         std::cerr << "Invalid DOS header." << std::endl;
@@ -75,7 +119,7 @@ BYTE* readRDataSection(BYTE* buffer, PDWORD rdataLength) {
 
     PIMAGE_SECTION_HEADER sectionHeader = IMAGE_FIRST_SECTION(ntHeaders);
     for (int i = 0; i < ntHeaders->FileHeader.NumberOfSections; ++i) {
-        if (strcmp(".rdata", (char*)sectionHeader[i].Name) == 0) {
+        if (strcmp(secName, (char*)sectionHeader[i].Name) == 0) {
             *rdataLength = sectionHeader[i].SizeOfRawData;
             return reinterpret_cast<BYTE*>(buffer) + sectionHeader[i].PointerToRawData;
         }
@@ -107,7 +151,7 @@ std::string GetDirectoryFromPath(const std::string& filePath) {
 
 void searchDll(BYTE* buffer, PResultInfo result, LPCWSTR filePath, char* dllsName, string fileDir) {
     DWORD rdataLength;
-    BYTE* rdata = readRDataSection(buffer, &rdataLength);
+    BYTE* rdata = readSectionData(buffer, &rdataLength, ".rdata");
     if (rdata != 0) {
         char fileFullPath[0x255] = { 0 };
         strcat(fileFullPath, fileDir.c_str());
@@ -171,7 +215,7 @@ bool hasWritePermission(const std::string& directoryPath) {
     return true;  // 创建文件成功，目录有写权限
 }
 
-void printImportTableInfo(BYTE* buffer, PResultInfo result, LPCWSTR filePath)
+bool printImportTableInfo(BYTE* buffer, PResultInfo result, LPCWSTR filePath)
 {
     const char* known_dlls[] = {"kernel32", "wow64cpu", "wowarmhw", "xtajit", "advapi32", "clbcatq", "combase", "COMDLG32", "coml2", "difxapi", "gdi32", "gdiplus", "IMAGEHLP", "IMM32", "MSCTF", "MSVCRT", "NORMALIZ", "NSI", "ole32", "OLEAUT32", "PSAPI", "rpcrt4", "sechost", "Setupapi", "SHCORE", "SHELL32", "SHLWAPI", "user32", "WLDAP32", "wow64cpu", "wow64", "wow64base", "wow64con", "wow64win", "WS2_32", "xtajit64"};
     string fileDir = GetDirectoryFromPath(ConvertWideToMultiByte(filePath)) + "\\";
@@ -233,6 +277,11 @@ void printImportTableInfo(BYTE* buffer, PResultInfo result, LPCWSTR filePath)
                     searchDll(buffer, result, filePath, dllsName, fileDir);
                     break;
                 }
+                else if (containsIgnoreCase(temp->Name, "CreateDialogParam") != NULL || containsIgnoreCase(temp->Name, "CreateWindow") != NULL || containsIgnoreCase(temp->Name, "CreateProcess") != NULL)
+                {
+                    result->isCreateWindow = true;
+                    break;
+                }
             }
             INT = PIMAGE_THUNK_DATA((PBYTE)INT + THUNK_DATA_SIZE);//INT在INT数组中下移
             count++;
@@ -249,6 +298,8 @@ void printImportTableInfo(BYTE* buffer, PResultInfo result, LPCWSTR filePath)
     }
 
     free(dllsName);
+
+    return true;
 }
 
 BOOL VerifyFileSignature(LPCWSTR filePath) {
@@ -311,9 +362,9 @@ BOOL VerifyFileSignature(LPCWSTR filePath) {
     ResultInfo* result = new ResultInfo;
     result->filePath = wstring2string(filePath);
     
-    printImportTableInfo(pbFile, result, filePath);
+    bool ret = printImportTableInfo(pbFile, result, filePath);
 
-    if (result->preLoadDlls.size() > 0 || result->postLoadDlls.size() > 0) {
+    if (ret && result->preLoadDlls.size() > 0 || result->postLoadDlls.size() > 0) {
         {
             std::lock_guard<std::mutex> lock(mtx);
             results.push_back(result);
@@ -364,74 +415,251 @@ void saveFile(string filePath, char* buffer, DWORD fileSize)
     outFile.close();
 }
 
-int fixExportTable(string targetFilePath, string sourceFilePath)
+void str_to_lower(char* str) {
+    while (*str) {
+        *str = tolower((unsigned char)*str);
+        str++;
+    }
+}
+
+std::vector<std::string> splitStringWithSemicolon(const std::string& str) {
+    std::istringstream iss(str);
+    std::vector<std::string> result;
+    std::string token;
+
+    while (std::getline(iss, token, ';')) {
+        if (!token.empty()) {
+            result.push_back(token);
+        }
+    }
+
+    return result;
+}
+
+DWORD getImportFuncAddr(char* buffer, PIMAGE_IMPORT_DESCRIPTOR ImportTable, char* name, int bit, bool isExeFile) {
+    int THUNK_DATA_SIZE = 4;
+    if (bit == 64)
+        THUNK_DATA_SIZE = 8;
+
+    PIMAGE_THUNK_DATA INT = PIMAGE_THUNK_DATA(rvaToFOA(buffer, ImportTable->OriginalFirstThunk) + buffer);
+    //导入表地址
+    PIMAGE_THUNK_DATA IAT = PIMAGE_THUNK_DATA(rvaToFOA(buffer, ImportTable->FirstThunk) + buffer);
+    PIMAGE_IMPORT_BY_NAME temp = { 0 };
+    int count = 0;
+    int index = 0;
+    int hookNameLength = strlen(name);
+    char* str = "";
+    std::vector<std::string> functionList = splitStringWithSemicolon(name);
+
+    while (INT->u1.AddressOfData)//当遍历到的是最后一个是时候是会为0，所以随便遍历一个就好
+    {
+        if (!(INT->u1.Ordinal & 0x80000000))
+        {
+            temp = (PIMAGE_IMPORT_BY_NAME)(rvaToFOA(buffer, INT->u1.AddressOfData) + buffer);
+            
+            for (const auto& func : functionList) {
+                if (containsIgnoreCase(temp->Name, func) != 0)
+                {
+                    return foaToRVA(buffer, (DWORD)IAT - (DWORD)buffer + count * THUNK_DATA_SIZE);
+                }
+            }
+
+            if (strlen(temp->Name) >= hookNameLength) {
+                index = count;
+                str = temp->Name;
+            }
+        }
+        INT = PIMAGE_THUNK_DATA((PBYTE)INT + THUNK_DATA_SIZE);//INT在INT数组中下移
+        count++;
+    }
+
+    if (!isExeFile && index > 0) {
+        memset(str, 0, strlen(str));
+        strcpy(str, name);
+        return foaToRVA(buffer, (DWORD)IAT - (DWORD)buffer + index * THUNK_DATA_SIZE);
+    }
+
+    return 0;
+}
+
+void repairReloc(char* buffer, DWORD* dataRva, int count, DWORD isClearEnd)
 {
+    PIMAGE_DOS_HEADER  pDH = (PIMAGE_DOS_HEADER)buffer;
+    PIMAGE_DATA_DIRECTORY pRelocDir;
+
+    if (*(PWORD)((size_t)pDH + pDH->e_lfanew + 0x18) == IMAGE_NT_OPTIONAL_HDR32_MAGIC)
+    {
+        PIMAGE_NT_HEADERS32  pNtH32 = PIMAGE_NT_HEADERS32((size_t)pDH + pDH->e_lfanew);
+        PIMAGE_OPTIONAL_HEADER32 pOH32 = &pNtH32->OptionalHeader;
+
+        pRelocDir = &(pOH32->DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC]);
+    }
+    else {
+        PIMAGE_NT_HEADERS64 pNtH64 = PIMAGE_NT_HEADERS64((size_t)pDH + pDH->e_lfanew);
+        PIMAGE_OPTIONAL_HEADER64 pOH64 = &pNtH64->OptionalHeader;
+
+        pRelocDir = &(pOH64->DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC]);
+    }
+
+    int index = 0;
+
+    if (pRelocDir->VirtualAddress != 0 && pRelocDir->Size != 0) {
+        PIMAGE_BASE_RELOCATION pRelocBlock = (PIMAGE_BASE_RELOCATION)(buffer + rvaToFOA(buffer, pRelocDir->VirtualAddress));
+        while (pRelocBlock->VirtualAddress != 0 && pRelocBlock->SizeOfBlock != 0) {
+            WORD* pRelocEntry = reinterpret_cast<WORD*>(reinterpret_cast<BYTE*>(pRelocBlock) + sizeof(IMAGE_BASE_RELOCATION));
+
+            DWORD numRelocs = (pRelocBlock->SizeOfBlock - sizeof(IMAGE_BASE_RELOCATION)) / sizeof(WORD);
+            for (DWORD i = 0; i < numRelocs; i++) {
+                WORD relocType = (pRelocEntry[i] & 0xF000) >> 12;
+                WORD relocOffset = pRelocEntry[i] & 0x0FFF;
+
+                if (isClearEnd > 0)
+                {
+                    if (dataRva[0] <= pRelocBlock->VirtualAddress + relocOffset && pRelocBlock->VirtualAddress + relocOffset <= isClearEnd)
+                        pRelocEntry[i] = pRelocEntry[i] & 0xfff;
+                }
+                else
+                {
+                    if (pRelocBlock->VirtualAddress + relocOffset >= dataRva[index])
+                    {
+                        if (index < count)
+                        {
+                            pRelocEntry[i] = (dataRva[index] % 0x1000) | 0x3000;
+                            index++;
+                        }
+                    }
+                }
+            }
+            pRelocBlock = reinterpret_cast<PIMAGE_BASE_RELOCATION>((reinterpret_cast<BYTE*>(pRelocBlock)) + pRelocBlock->SizeOfBlock);
+        }
+    }
+}
+
+int fixFile(string targetFilePath, DWORD exitCode)
+{
+    bool isExeFile = targetFilePath.back() == 'e' ? true : false;
+
     char* targetBuffer;
     DWORD fileSize = readFileContext(targetFilePath, &targetBuffer);
 
     PIMAGE_DOS_HEADER pDH = (PIMAGE_DOS_HEADER)targetBuffer;
     PIMAGE_NT_HEADERS pNtH = (PIMAGE_NT_HEADERS)((DWORD)pDH + pDH->e_lfanew);
     PIMAGE_OPTIONAL_HEADER pOH = &pNtH->OptionalHeader;
-    IMAGE_DATA_DIRECTORY exportDirectory;
+    IMAGE_DATA_DIRECTORY importDirectory;
+    int bit;
+    DWORD imageBase = 0;
+    DWORD oep = 0;
 
     if (*(PWORD)((size_t)pDH + pDH->e_lfanew + 0x18) == IMAGE_NT_OPTIONAL_HDR32_MAGIC)
     {
         PIMAGE_NT_HEADERS32  pNtH32 = PIMAGE_NT_HEADERS32((size_t)pDH + pDH->e_lfanew);
         PIMAGE_OPTIONAL_HEADER32 pOH32 = &pNtH32->OptionalHeader;
 
-        exportDirectory = pOH32->DataDirectory[0];
+        importDirectory = pOH32->DataDirectory[1];
+        bit = 32;
+        imageBase = pOH32->ImageBase;
+        oep = pOH32->AddressOfEntryPoint;
     }
     else {
         PIMAGE_NT_HEADERS64 pNtH64 = PIMAGE_NT_HEADERS64((size_t)pDH + pDH->e_lfanew);
         PIMAGE_OPTIONAL_HEADER64 pOH64 = &pNtH64->OptionalHeader;
 
-        exportDirectory = pOH64->DataDirectory[0];
+        importDirectory = pOH64->DataDirectory[1];
+        bit = 64;
+        oep = pOH64->AddressOfEntryPoint;
     }
 
-    IMAGE_EXPORT_DIRECTORY* exportDir = (IMAGE_EXPORT_DIRECTORY*)(targetBuffer + rvaToFOA(targetBuffer, exportDirectory.VirtualAddress));
+    size_t oep_foa_addr = (size_t)targetBuffer + rvaToFOA(targetBuffer, oep);
+    DWORD clear[1] = { oep };
+    DWORD improtFunc;
+    DWORD addr;
+    bool isHook = false;
 
-    DWORD* nameRVAs = (DWORD*)(targetBuffer + rvaToFOA(targetBuffer, exportDir->AddressOfNames));
+    PIMAGE_IMPORT_DESCRIPTOR ImportTable = PIMAGE_IMPORT_DESCRIPTOR((DWORD)targetBuffer + rvaToFOA(targetBuffer, importDirectory.VirtualAddress));
 
-    char* sourceBuffer;
-    readFileContext(sourceFilePath, &sourceBuffer);
-
-    pDH = (PIMAGE_DOS_HEADER)sourceBuffer;
-    pNtH = (PIMAGE_NT_HEADERS)((DWORD)pDH + pDH->e_lfanew);
-    pOH = &pNtH->OptionalHeader;
-
-    if (*(PWORD)((size_t)pDH + pDH->e_lfanew + 0x18) == IMAGE_NT_OPTIONAL_HDR32_MAGIC)
+    while (ImportTable->Name)
     {
-        PIMAGE_NT_HEADERS32  pNtH32 = PIMAGE_NT_HEADERS32((size_t)pDH + pDH->e_lfanew);
-        PIMAGE_OPTIONAL_HEADER32 pOH32 = &pNtH32->OptionalHeader;
+        char* pName = rvaToFOA(targetBuffer, ImportTable->Name) + targetBuffer;
+        str_to_lower(pName);
 
-        exportDirectory = pOH32->DataDirectory[0];
-    }
-    else {
-        PIMAGE_NT_HEADERS64 pNtH64 = PIMAGE_NT_HEADERS64((size_t)pDH + pDH->e_lfanew);
-        PIMAGE_OPTIONAL_HEADER64 pOH64 = &pNtH64->OptionalHeader;
+        if (isExeFile) {
+            if (strstr(pName, "user32.dll") != NULL || strstr(pName, "kernel32.dll") != NULL) {
+                addr = getImportFuncAddr(targetBuffer, ImportTable, "CreateDialogParam;CreateWindow;CreateProcess", bit, isExeFile);
+                if (addr != 0) {
+                    DWORD textLength;
+                    BYTE* textData = readSectionData((BYTE*)targetBuffer, &textLength, ".text");
+                    for (int i = 0; i < textLength; i++) {
+                        if (*(PWORD)((PBYTE)textData + i) == 0x15FF) {
+                            DWORD value = *(PDWORD)((PBYTE)textData + i + 2);
+                            if (bit == 64) {
+                                if (value = addr - foaToRVA(targetBuffer, ((size_t)textData + i + 6)))
+                                    memset(textData + i, 0x90, 6);
+                            }
+                            else {
+                                if (value == imageBase + addr)
+                                    memset(textData + i, 0x90, 6);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        else {
+            if (!isHook && strstr(pName, "kernel32.dll") != NULL) {
+                addr = getImportFuncAddr(targetBuffer, ImportTable, "ExitProcess", bit, isExeFile);
+                if (addr != 0) {
+                    repairReloc(targetBuffer, clear, 0, oep + 11);
 
-        exportDirectory = pOH64->DataDirectory[0];
-    }
+                    if (bit == 64) {
+                        unsigned char hook_data[] = { 0xB9, 0x00, 0x00, 0x00, 0x00, 0xFF, 0x15, 0xC8, 0xEF, 0x00, 0x00 };
+                        improtFunc = addr - (oep + 11);
+                        memcpy((char*)oep_foa_addr, hook_data, 11);
+                    }
+                    else {
+                        unsigned char hook_data[] = { 0x68, 0x00, 0x00, 0x00, 0x00, 0xFF, 0x15, 0x08, 0x20, 0x40, 0x00 };
+                        improtFunc = imageBase + addr;
+                        memcpy((char*)oep_foa_addr, hook_data, 11);
 
-    IMAGE_EXPORT_DIRECTORY* exportDir_source = (IMAGE_EXPORT_DIRECTORY*)(sourceBuffer + rvaToFOA(sourceBuffer, exportDirectory.VirtualAddress));
+                        DWORD dataRva[] = { oep + 7 };
+                        repairReloc(targetBuffer, dataRva, 1, 0);
+                    }
 
-    DWORD* nameRVAs_source = (DWORD*)(sourceBuffer + rvaToFOA(sourceBuffer, exportDir_source->AddressOfNames));
+                    *(PDWORD)(oep_foa_addr + 1) = exitCode;
+                    *(PDWORD)(oep_foa_addr + 7) = improtFunc;
+                    isHook = true;
+                }
+            }
+            else if (!isHook && strstr(pName, "ntdll.dll") != NULL) {
+                addr = getImportFuncAddr(targetBuffer, ImportTable, "NtTerminateProcess", bit, isExeFile);
+                if (addr != 0) {
+                    repairReloc(targetBuffer, clear, 0, oep + 16);
 
-    for (int i = 0; i < exportDir_source->NumberOfNames; i++)
-    {
-        DWORD nameRVA_source = nameRVAs_source[i];
-        char* exportFunctionName_source = sourceBuffer + rvaToFOA(sourceBuffer, nameRVA_source);
+                    if (bit == 64) {
+                        unsigned char hook_data[] = { 0xBA, 0x00, 0x00, 0x00, 0x00, 0xB9, 0xff, 0xff, 0xff, 0xff, 0xFF, 0x15, 0xC8, 0xEF, 0x00, 0x00 };
+                        improtFunc = addr - (oep + 16);
+                        memcpy((char*)oep_foa_addr, hook_data, 16);
+                    }
+                    else {
+                        unsigned char hook_data[] = { 0x68, 0x00, 0x00, 0x00, 0x00, 0x68, 0xff, 0xff, 0xff, 0xff, 0xFF, 0x15, 0x08, 0x20, 0x40, 0x00 };
+                        improtFunc = imageBase + addr;
+                        memcpy((char*)oep_foa_addr, hook_data, 16);
 
-        DWORD nameRVA = nameRVAs[i];
-        char* exportFunctionName = targetBuffer + rvaToFOA(targetBuffer, nameRVA);
+                        DWORD dataRva[] = { oep + 12 };
+                        repairReloc(targetBuffer, dataRva, 1, 0);
+                    }
 
-        memcpy(exportFunctionName, exportFunctionName_source, strlen(exportFunctionName_source)+1);
+                    *(PDWORD)(oep_foa_addr + 1) = exitCode;
+                    *(PDWORD)(oep_foa_addr + 12) = improtFunc;
+                    isHook = true;
+                }
+            }
+        }
+        ImportTable++;
     }
 
     saveFile(targetFilePath, targetBuffer, fileSize);
 
     delete[] targetBuffer;
-    delete[] sourceBuffer;
 
     return 0;
 }
@@ -480,25 +708,13 @@ std::wstring ConvertToWideString(const char* input) {
     return result;
 }
 
-string CopyFileToFolder(const std::string& sourceFilePath, const std::string& targetFolderPath, bool isNeedHook, bool isPreDll, int bit) {
+string CopyFileToFolder(const std::string& sourceFilePath, const std::string& targetFolderPath, bool isNeedHook, DWORD exitCode) {
     std::string targetFilePath = targetFolderPath + "\\" + sourceFilePath.substr(sourceFilePath.find_last_of("\\/") + 1);
 
-    if (isNeedHook) {
-        std::string hookFilePath = GetCurrentPath() + "\\TestLoad_x86.dll";
-        if (bit == 64)
-            hookFilePath = GetCurrentPath() + "\\TestLoad_x64.dll";
+    CopyFileA(sourceFilePath.c_str(), targetFilePath.c_str(), FALSE);
 
-        if (isPreDll) {
-            CopyFileA(hookFilePath.c_str(), targetFilePath.c_str(), FALSE);
-            fixExportTable(targetFilePath, sourceFilePath);
-        }
-        else {
-            CopyFileA(hookFilePath.c_str(), targetFilePath.c_str(), FALSE);
-        }
-    }
-    else {
-        CopyFileA(sourceFilePath.c_str(), targetFilePath.c_str(), FALSE);
-    }
+    if (isNeedHook)
+        fixFile(targetFilePath, exitCode);
 
     return targetFilePath;
 }
@@ -561,8 +777,7 @@ int TestCreateProcess(string runFilePath) {
         nullptr,                        // 指定新进程的当前目录
         &si,                            // STARTUPINFO 结构体
         &pi)) {                         // 接收新进程信息的 PROCESS_INFORMATION 结构体
-        std::cerr << "Failed to create process. Error code: " << GetLastError() << std::endl;
-        return 1;
+        return 0;
     }
 
     // 等待进程结束
@@ -572,32 +787,37 @@ int TestCreateProcess(string runFilePath) {
 
     // 获取进程的退出码
     DWORD exitCode;
-    GetExitCodeProcess(pi.hProcess, &exitCode);
-
-    // 输出退出码
-    std::cout << runFilePath << " Process exited with code: " << exitCode << std::endl;
+    GetExitCodeProcess(pi.hProcess, &exitCode);    
 
     // 关闭进程和线程句柄
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
 
-    return 0;
+    Sleep(500);
+
+    return exitCode;
 }
 
 void RunPE() {
     std::string currentPath = GetCurrentPath();
 
-    for (const auto& result : results) {
+    for (auto it = results.begin(); it != results.end();) {
+        PResultInfo result = *it;
+
         string folderPath = CreateRandomFolder(currentPath);
 
-        string runFilePath = CopyFileToFolder(result->filePath, folderPath, false, false, result->bit);
+        string runFilePath = CopyFileToFolder(result->filePath, folderPath, result->isCreateWindow, NULL);
 
+        map<DWORD, std::string> hookDllMap;
         bool flag;
+        DWORD exitCode = 0x22222222;
         if (result->preLoadDlls.size() > 0) {
             flag = result->preLoadDlls.size() <= c.dllCount ? true : false;
 
             for (const auto& dll : result->preLoadDlls) {
-                CopyFileToFolder(result->fileDir + dll, folderPath, flag, true, result->bit);
+                CopyFileToFolder(result->fileDir + dll, folderPath, flag, exitCode);
+                hookDllMap[exitCode] = dll;
+                exitCode++;
             }
         }
 
@@ -605,12 +825,22 @@ void RunPE() {
             flag = result->postLoadDlls.size() <= c.dllCount ? true : false;
 
             for (const auto& dll : result->postLoadDlls) {
-                CopyFileToFolder(result->fileDir + dll, folderPath, flag, false, result->bit);
+                CopyFileToFolder(result->fileDir + dll, folderPath, flag, exitCode);
+                hookDllMap[exitCode] = dll;
+                exitCode++;
             }
         }
 
-        TestCreateProcess(runFilePath);
+        DWORD retExitCode = TestCreateProcess(runFilePath);
+        result->exploitDllPath = hookDllMap[retExitCode];
 
-        DeleteDirectory(folderPath.c_str());
+        //DeleteDirectory(folderPath.c_str());
+
+        if (result->exploitDllPath == "")
+            it = results.erase(it);
+        else {
+            ++it;
+            DeleteDirectory(folderPath.c_str());
+        }
     }
 }

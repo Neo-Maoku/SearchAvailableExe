@@ -152,11 +152,14 @@ int main(int argc, char* argv[]) {
     //运行目标程序，判断是否会加载hook的dll
     RunPE();
 
+    *output << "找到可利用白文件：" << results.size() << "个" << endl;
+
     for (const auto& result : results) {
         *output << result->filePath << endl;
         *output << "程序位数: " << result->bit << " 目录是否可写: " << result->isWrite << endl;
+        *output << "可利用DLL: " << result->exploitDllPath << endl;
 
-        if (result->preLoadDlls.size() > 0) {
+        /*if (result->preLoadDlls.size() > 0) {
             *output << "预加载DLL个数: " << result->preLoadDlls.size() << endl;
             for (const auto& dll : result->preLoadDlls) {
                 *output << dll << endl;
@@ -170,7 +173,7 @@ int main(int argc, char* argv[]) {
                 *output << dll << endl;
                 delete[] dll;
             }
-        }
+        }*/
 
         *output << "--------------------------------------------------" << endl;
 

@@ -1,5 +1,4 @@
-﻿#include <windows.h>
-#include <stdio.h>
+﻿#include <Windows.h>
 
 #include "export.hpp"
 
@@ -10,9 +9,8 @@ BOOL APIENTRY DllMain( HMODULE hModule,
 {
     switch (ul_reason_for_call)
     {
-
     case DLL_PROCESS_ATTACH:
-        exit(0x2222);
+        //exit(0x1D7F9D44);
     case DLL_THREAD_ATTACH:
     case DLL_THREAD_DETACH:
     case DLL_PROCESS_DETACH:

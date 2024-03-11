@@ -10,16 +10,19 @@
 #include <filesystem>
 #include <mutex>
 #include <random>
+#include <map>
 
 using namespace std;
 
 typedef struct {
     bool isWrite;
+    bool isCreateWindow;
     string filePath;
     string fileDir;
     int bit;
     vector<char*> preLoadDlls;
     vector<char*> postLoadDlls;
+    string exploitDllPath;
 } ResultInfo, * PResultInfo;
 
 #define STRING_MAX 256
