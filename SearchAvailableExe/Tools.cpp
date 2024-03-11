@@ -57,8 +57,8 @@ DWORD foaToRVA(LPVOID lpBuffer, DWORD FOA) {
     {
         PIMAGE_NT_HEADERS32  pNtH32 = PIMAGE_NT_HEADERS32((size_t)pDH + pDH->e_lfanew);
         PIMAGE_OPTIONAL_HEADER32 pOH32 = &pNtH32->OptionalHeader;
-        pFile = (PIMAGE_FILE_HEADER)((DWORD)pNtH32 + 4);
-        pFirstSection = PIMAGE_SECTION_HEADER((DWORD)pOH32 + pFile->SizeOfOptionalHeader);
+        pFile = (PIMAGE_FILE_HEADER)((size_t)pNtH32 + 4);
+        pFirstSection = PIMAGE_SECTION_HEADER((size_t)pOH32 + pFile->SizeOfOptionalHeader);
 
         if (FOA < pOH32->SizeOfHeaders || pOH32->FileAlignment == pOH32->SectionAlignment) {
             return FOA;
@@ -67,8 +67,8 @@ DWORD foaToRVA(LPVOID lpBuffer, DWORD FOA) {
     else {
         PIMAGE_NT_HEADERS64 pNtH64 = PIMAGE_NT_HEADERS64((size_t)pDH + pDH->e_lfanew);
         PIMAGE_OPTIONAL_HEADER64 pOH64 = &pNtH64->OptionalHeader;
-        pFile = (PIMAGE_FILE_HEADER)((DWORD)pNtH64 + 4);
-        pFirstSection = PIMAGE_SECTION_HEADER((DWORD)pOH64 + pFile->SizeOfOptionalHeader);
+        pFile = (PIMAGE_FILE_HEADER)((size_t)pNtH64 + 4);
+        pFirstSection = PIMAGE_SECTION_HEADER((size_t)pOH64 + pFile->SizeOfOptionalHeader);
 
         if (FOA < pOH64->SizeOfHeaders || pOH64->FileAlignment == pOH64->SectionAlignment) {
             return FOA;
@@ -86,7 +86,7 @@ DWORD foaToRVA(LPVOID lpBuffer, DWORD FOA) {
             return relSectionFileAdd + pSectionHeader->VirtualAddress;
         }
         /*指向下一个节表*/
-        pSectionHeader = (PIMAGE_SECTION_HEADER)((DWORD)pSectionHeader + IMAGE_SIZEOF_SECTION_HEADER);
+        pSectionHeader = (PIMAGE_SECTION_HEADER)((size_t)pSectionHeader + IMAGE_SIZEOF_SECTION_HEADER);
     }
 
     return 0;
@@ -272,14 +272,12 @@ bool printImportTableInfo(BYTE* buffer, PResultInfo result, LPCWSTR filePath)
             if (!(INT->u1.Ordinal & 0x80000000))
             {
                 temp = (PIMAGE_IMPORT_BY_NAME)(rvaToFOA(buffer, INT->u1.AddressOfData) + buffer);
-                if (containsIgnoreCase(temp->Name, "loadlibrary") != NULL)
-                {
-                    searchDll(buffer, result, filePath, dllsName, fileDir);
+                if ((BYTE*)temp == buffer) {
                     break;
                 }
-                else if (containsIgnoreCase(temp->Name, "CreateDialogParam") != NULL || containsIgnoreCase(temp->Name, "CreateWindow") != NULL || containsIgnoreCase(temp->Name, "CreateProcess") != NULL)
+                else if (containsIgnoreCase(temp->Name, "loadlibrary") != NULL)
                 {
-                    result->isCreateWindow = true;
+                    searchDll(buffer, result, filePath, dllsName, fileDir);
                     break;
                 }
             }
@@ -422,21 +420,7 @@ void str_to_lower(char* str) {
     }
 }
 
-std::vector<std::string> splitStringWithSemicolon(const std::string& str) {
-    std::istringstream iss(str);
-    std::vector<std::string> result;
-    std::string token;
-
-    while (std::getline(iss, token, ';')) {
-        if (!token.empty()) {
-            result.push_back(token);
-        }
-    }
-
-    return result;
-}
-
-DWORD getImportFuncAddr(char* buffer, PIMAGE_IMPORT_DESCRIPTOR ImportTable, char* name, int bit, bool isExeFile) {
+DWORD getImportFuncAddr(char* buffer, PIMAGE_IMPORT_DESCRIPTOR ImportTable, char* name, int bit) {
     int THUNK_DATA_SIZE = 4;
     if (bit == 64)
         THUNK_DATA_SIZE = 8;
@@ -449,19 +433,17 @@ DWORD getImportFuncAddr(char* buffer, PIMAGE_IMPORT_DESCRIPTOR ImportTable, char
     int index = 0;
     int hookNameLength = strlen(name);
     char* str = "";
-    std::vector<std::string> functionList = splitStringWithSemicolon(name);
 
     while (INT->u1.AddressOfData)//当遍历到的是最后一个是时候是会为0，所以随便遍历一个就好
     {
         if (!(INT->u1.Ordinal & 0x80000000))
         {
             temp = (PIMAGE_IMPORT_BY_NAME)(rvaToFOA(buffer, INT->u1.AddressOfData) + buffer);
-            
-            for (const auto& func : functionList) {
-                if (containsIgnoreCase(temp->Name, func) != 0)
-                {
-                    return foaToRVA(buffer, (DWORD)IAT - (DWORD)buffer + count * THUNK_DATA_SIZE);
-                }
+            if ((char*)temp == buffer)
+                break;
+            if (containsIgnoreCase(temp->Name, name) != 0)
+            {
+                return foaToRVA(buffer, (size_t)IAT - (size_t)buffer + count * THUNK_DATA_SIZE);
             }
 
             if (strlen(temp->Name) >= hookNameLength) {
@@ -473,10 +455,10 @@ DWORD getImportFuncAddr(char* buffer, PIMAGE_IMPORT_DESCRIPTOR ImportTable, char
         count++;
     }
 
-    if (!isExeFile && index > 0) {
+    if (index > 0) {
         memset(str, 0, strlen(str));
         strcpy(str, name);
-        return foaToRVA(buffer, (DWORD)IAT - (DWORD)buffer + index * THUNK_DATA_SIZE);
+        return foaToRVA(buffer, (size_t)IAT - (size_t)buffer + index * THUNK_DATA_SIZE);
     }
 
     return 0;
@@ -537,14 +519,10 @@ void repairReloc(char* buffer, DWORD* dataRva, int count, DWORD isClearEnd)
 
 int fixFile(string targetFilePath, DWORD exitCode)
 {
-    bool isExeFile = targetFilePath.back() == 'e' ? true : false;
-
     char* targetBuffer;
     DWORD fileSize = readFileContext(targetFilePath, &targetBuffer);
 
     PIMAGE_DOS_HEADER pDH = (PIMAGE_DOS_HEADER)targetBuffer;
-    PIMAGE_NT_HEADERS pNtH = (PIMAGE_NT_HEADERS)((DWORD)pDH + pDH->e_lfanew);
-    PIMAGE_OPTIONAL_HEADER pOH = &pNtH->OptionalHeader;
     IMAGE_DATA_DIRECTORY importDirectory;
     int bit;
     DWORD imageBase = 0;
@@ -575,87 +553,82 @@ int fixFile(string targetFilePath, DWORD exitCode)
     DWORD addr;
     bool isHook = false;
 
-    PIMAGE_IMPORT_DESCRIPTOR ImportTable = PIMAGE_IMPORT_DESCRIPTOR((DWORD)targetBuffer + rvaToFOA(targetBuffer, importDirectory.VirtualAddress));
+    PIMAGE_IMPORT_DESCRIPTOR ImportTable = PIMAGE_IMPORT_DESCRIPTOR((size_t)targetBuffer + rvaToFOA(targetBuffer, importDirectory.VirtualAddress));
+    PIMAGE_IMPORT_DESCRIPTOR tmp_ImportTable = ImportTable;
+
+    const char* names[] = { "kernel32.dll", "ntdll.dll", "api-ms-win-", "msvcrt.dll", "oleaut32.dll", "user32.dll", "ole32.dll", "vcruntime140.dll", "advapi32.dll", "gdiplus.dll", "shell32.dll", "shlwapi.dll", "comctl32.dll" };
+    size_t indexs[100] = { 0 };
+    int count = 0;
+    DWORD nameSize = sizeof(names) / sizeof(size_t);
 
     while (ImportTable->Name)
     {
         char* pName = rvaToFOA(targetBuffer, ImportTable->Name) + targetBuffer;
         str_to_lower(pName);
 
-        if (isExeFile) {
-            if (strstr(pName, "user32.dll") != NULL || strstr(pName, "kernel32.dll") != NULL) {
-                addr = getImportFuncAddr(targetBuffer, ImportTable, "CreateDialogParam;CreateWindow;CreateProcess", bit, isExeFile);
-                if (addr != 0) {
-                    DWORD textLength;
-                    BYTE* textData = readSectionData((BYTE*)targetBuffer, &textLength, ".text");
-                    for (int i = 0; i < textLength; i++) {
-                        if (*(PWORD)((PBYTE)textData + i) == 0x15FF) {
-                            DWORD value = *(PDWORD)((PBYTE)textData + i + 2);
-                            if (bit == 64) {
-                                if (value = addr - foaToRVA(targetBuffer, ((size_t)textData + i + 6)))
-                                    memset(textData + i, 0x90, 6);
-                            }
-                            else {
-                                if (value == imageBase + addr)
-                                    memset(textData + i, 0x90, 6);
-                            }
-                        }
-                    }
+        for (int i = 0; i < nameSize; i++)
+        {
+            if (strstr(pName, names[i]) != NULL)
+                indexs[count++] = (size_t)ImportTable;
+        }
+
+        if (!isHook && strstr(pName, "kernel32.dll") != NULL) {
+            addr = getImportFuncAddr(targetBuffer, ImportTable, "ExitProcess", bit);
+            if (addr != 0) {
+                repairReloc(targetBuffer, clear, 0, oep + 11);
+
+                if (bit == 64) {
+                    unsigned char hook_data[] = { 0xB9, 0x00, 0x00, 0x00, 0x00, 0xFF, 0x15, 0xC8, 0xEF, 0x00, 0x00 };
+                    improtFunc = addr - (oep + 11);
+                    memcpy((char*)oep_foa_addr, hook_data, 11);
                 }
+                else {
+                    unsigned char hook_data[] = { 0x68, 0x00, 0x00, 0x00, 0x00, 0xFF, 0x15, 0x08, 0x20, 0x40, 0x00 };
+                    improtFunc = imageBase + addr;
+                    memcpy((char*)oep_foa_addr, hook_data, 11);
+
+                    DWORD dataRva[] = { oep + 7 };
+                    repairReloc(targetBuffer, dataRva, 1, 0);
+                }
+
+                *(PDWORD)(oep_foa_addr + 1) = exitCode;
+                *(PDWORD)(oep_foa_addr + 7) = improtFunc;
+                isHook = true;
             }
         }
-        else {
-            if (!isHook && strstr(pName, "kernel32.dll") != NULL) {
-                addr = getImportFuncAddr(targetBuffer, ImportTable, "ExitProcess", bit, isExeFile);
-                if (addr != 0) {
-                    repairReloc(targetBuffer, clear, 0, oep + 11);
+        else if (!isHook && strstr(pName, "ntdll.dll") != NULL) {
+            addr = getImportFuncAddr(targetBuffer, ImportTable, "NtTerminateProcess", bit);
+            if (addr != 0) {
+                repairReloc(targetBuffer, clear, 0, oep + 16);
 
-                    if (bit == 64) {
-                        unsigned char hook_data[] = { 0xB9, 0x00, 0x00, 0x00, 0x00, 0xFF, 0x15, 0xC8, 0xEF, 0x00, 0x00 };
-                        improtFunc = addr - (oep + 11);
-                        memcpy((char*)oep_foa_addr, hook_data, 11);
-                    }
-                    else {
-                        unsigned char hook_data[] = { 0x68, 0x00, 0x00, 0x00, 0x00, 0xFF, 0x15, 0x08, 0x20, 0x40, 0x00 };
-                        improtFunc = imageBase + addr;
-                        memcpy((char*)oep_foa_addr, hook_data, 11);
-
-                        DWORD dataRva[] = { oep + 7 };
-                        repairReloc(targetBuffer, dataRva, 1, 0);
-                    }
-
-                    *(PDWORD)(oep_foa_addr + 1) = exitCode;
-                    *(PDWORD)(oep_foa_addr + 7) = improtFunc;
-                    isHook = true;
+                if (bit == 64) {
+                    unsigned char hook_data[] = { 0xBA, 0x00, 0x00, 0x00, 0x00, 0xB9, 0xff, 0xff, 0xff, 0xff, 0xFF, 0x15, 0xC8, 0xEF, 0x00, 0x00 };
+                    improtFunc = addr - (oep + 16);
+                    memcpy((char*)oep_foa_addr, hook_data, 16);
                 }
-            }
-            else if (!isHook && strstr(pName, "ntdll.dll") != NULL) {
-                addr = getImportFuncAddr(targetBuffer, ImportTable, "NtTerminateProcess", bit, isExeFile);
-                if (addr != 0) {
-                    repairReloc(targetBuffer, clear, 0, oep + 16);
+                else {
+                    unsigned char hook_data[] = { 0x68, 0x00, 0x00, 0x00, 0x00, 0x68, 0xff, 0xff, 0xff, 0xff, 0xFF, 0x15, 0x08, 0x20, 0x40, 0x00 };
+                    improtFunc = imageBase + addr;
+                    memcpy((char*)oep_foa_addr, hook_data, 16);
 
-                    if (bit == 64) {
-                        unsigned char hook_data[] = { 0xBA, 0x00, 0x00, 0x00, 0x00, 0xB9, 0xff, 0xff, 0xff, 0xff, 0xFF, 0x15, 0xC8, 0xEF, 0x00, 0x00 };
-                        improtFunc = addr - (oep + 16);
-                        memcpy((char*)oep_foa_addr, hook_data, 16);
-                    }
-                    else {
-                        unsigned char hook_data[] = { 0x68, 0x00, 0x00, 0x00, 0x00, 0x68, 0xff, 0xff, 0xff, 0xff, 0xFF, 0x15, 0x08, 0x20, 0x40, 0x00 };
-                        improtFunc = imageBase + addr;
-                        memcpy((char*)oep_foa_addr, hook_data, 16);
-
-                        DWORD dataRva[] = { oep + 12 };
-                        repairReloc(targetBuffer, dataRva, 1, 0);
-                    }
-
-                    *(PDWORD)(oep_foa_addr + 1) = exitCode;
-                    *(PDWORD)(oep_foa_addr + 12) = improtFunc;
-                    isHook = true;
+                    DWORD dataRva[] = { oep + 12 };
+                    repairReloc(targetBuffer, dataRva, 1, 0);
                 }
+
+                *(PDWORD)(oep_foa_addr + 1) = exitCode;
+                *(PDWORD)(oep_foa_addr + 12) = improtFunc;
+                isHook = true;
             }
         }
         ImportTable++;
     }
+
+    for (int i = 0; i < count; i++)
+    {
+        memcpy(tmp_ImportTable, (char*)indexs[i], 0x14);
+        tmp_ImportTable++;
+    }
+    memset(tmp_ImportTable, 0, 0x14);
 
     saveFile(targetFilePath, targetBuffer, fileSize);
 
@@ -806,41 +779,34 @@ void RunPE() {
 
         string folderPath = CreateRandomFolder(currentPath);
 
-        string runFilePath = CopyFileToFolder(result->filePath, folderPath, result->isCreateWindow, NULL);
+        string runFilePath = CopyFileToFolder(result->filePath, folderPath, false, NULL);
 
         map<DWORD, std::string> hookDllMap;
         bool flag;
         DWORD exitCode = 0x22222222;
-        if (result->preLoadDlls.size() > 0) {
-            flag = result->preLoadDlls.size() <= c.dllCount ? true : false;
 
-            for (const auto& dll : result->preLoadDlls) {
-                CopyFileToFolder(result->fileDir + dll, folderPath, flag, exitCode);
-                hookDllMap[exitCode] = dll;
-                exitCode++;
-            }
+        for (const auto& dll : result->preLoadDlls) {
+            CopyFileToFolder(result->fileDir + dll, folderPath, true, exitCode);
+            hookDllMap[exitCode] = dll;
+            exitCode++;
         }
 
-        if (result->postLoadDlls.size() > 0) {
-            flag = result->postLoadDlls.size() <= c.dllCount ? true : false;
-
-            for (const auto& dll : result->postLoadDlls) {
-                CopyFileToFolder(result->fileDir + dll, folderPath, flag, exitCode);
-                hookDllMap[exitCode] = dll;
-                exitCode++;
-            }
+        for (const auto& dll : result->postLoadDlls) {
+            CopyFileToFolder(result->fileDir + dll, folderPath, true, exitCode);
+            hookDllMap[exitCode] = dll;
+            exitCode++;
         }
 
         DWORD retExitCode = TestCreateProcess(runFilePath);
         result->exploitDllPath = hookDllMap[retExitCode];
 
-        //DeleteDirectory(folderPath.c_str());
+        DeleteDirectory(folderPath.c_str());
 
         if (result->exploitDllPath == "")
             it = results.erase(it);
         else {
             ++it;
-            DeleteDirectory(folderPath.c_str());
+            //DeleteDirectory(folderPath.c_str());
         }
     }
 }

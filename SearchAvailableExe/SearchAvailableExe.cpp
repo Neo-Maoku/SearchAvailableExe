@@ -58,14 +58,14 @@ bool compare(PResultInfo a, PResultInfo b) {
 }
 
 bool isUnwanted(const PResultInfo result) {
-    int preSize = result->preLoadDlls.size() == 0 ? 999 : result->preLoadDlls.size();
-    int postSize = result->postLoadDlls.size() == 0 ? 999 : result->postLoadDlls.size();
+    int preSize = result->preLoadDlls.size();
+    int postSize = result->postLoadDlls.size();
 
     if (c.isWrite == 1 && result->isWrite == 0)
         return true;
     if ((c.bit == 32 && result->bit != 32) || (c.bit == 64 && result->bit != 64))
         return true;
-    if (c.dllCount < preSize && c.dllCount < postSize)
+    if (preSize + postSize > c.dllCount)
         return true;
 
     return false;
@@ -148,6 +148,8 @@ int main(int argc, char* argv[]) {
     sort(results.begin(), results.end(), compare);
 
     results.erase(std::remove_if(results.begin(), results.end(), isUnwanted), results.end());
+
+    *output << "dll信息统计完毕，初步符合要求的白程序有：" << results.size() << "个" << endl;
 
     //运行目标程序，判断是否会加载hook的dll
     RunPE();

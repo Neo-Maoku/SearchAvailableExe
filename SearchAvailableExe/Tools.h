@@ -16,7 +16,6 @@ using namespace std;
 
 typedef struct {
     bool isWrite;
-    bool isCreateWindow;
     string filePath;
     string fileDir;
     int bit;
