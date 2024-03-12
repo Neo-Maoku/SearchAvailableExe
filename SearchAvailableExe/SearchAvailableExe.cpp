@@ -109,6 +109,37 @@ static void usage(void) {
     exit(0);
 }
 
+std::map<DWORD, bool> processIdMap;
+BOOL CALLBACK lpEnumFunc(HWND hwnd, LPARAM lParam) {
+    DWORD  processId;
+    GetWindowThreadProcessId(hwnd, &processId);
+
+    CHAR windowText[256];
+    GetWindowTextA(hwnd, windowText, ARRAYSIZE(windowText));
+
+    if (processIdMap[processId]) {
+        PostMessage(hwnd, WM_CLOSE, 0, 0);
+    }
+
+    return TRUE;
+}
+
+DWORD WINAPI MonitorThread(LPVOID lpParam) {
+    HANDLE hProcessSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    PROCESSENTRY32 process = { sizeof(PROCESSENTRY32) };
+
+    // 遍历进程
+    while (Process32Next(hProcessSnap, &process)) {
+        if (strstr(wstring2string(process.szExeFile).c_str(), "csrss.exe"))
+            processIdMap[process.th32ProcessID] = true;
+    }
+
+    while (1)
+        EnumWindows(lpEnumFunc, (LPARAM)&processIdMap);
+    
+    return 0;
+}
+
 int main(int argc, char* argv[]) {
     
     memset(&c, 0, sizeof(c));
@@ -151,9 +182,13 @@ int main(int argc, char* argv[]) {
 
     *output << "dll信息统计完毕，初步符合要求的白程序有：" << results.size() << "个" << endl;
 
+    HANDLE hThread = CreateThread(NULL, 0, MonitorThread, NULL, 0, NULL);
+
     //运行目标程序，判断是否会加载hook的dll
     RunPE();
 
+    TerminateThread(hThread,  0);
+    
     *output << "找到可利用白文件：" << results.size() << "个" << endl;
 
     for (const auto& result : results) {

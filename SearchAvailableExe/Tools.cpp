@@ -754,7 +754,7 @@ int TestCreateProcess(string runFilePath) {
     }
 
     // 等待进程结束
-    WaitForSingleObject(pi.hProcess, 2 * 1000);
+    WaitForSingleObject(pi.hProcess, 1000);
 
     TerminateProcess(pi.hProcess, 0);
 

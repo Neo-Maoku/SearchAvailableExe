@@ -11,6 +11,8 @@
 #include <mutex>
 #include <random>
 #include <map>
+#include <psapi.h>
+#include <TlHelp32.h>
 
 using namespace std;
 
@@ -35,4 +37,5 @@ typedef struct {
 
 BOOL VerifyFileSignature(LPCWSTR filePath);
 std::wstring ConvertToWideString(const char* input);
+string wstring2string(wstring wstr);
 void RunPE();
