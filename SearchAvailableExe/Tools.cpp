@@ -783,7 +783,7 @@ int TestCreateProcess(string runFilePath) {
     }
 
     // 等待进程结束
-    WaitForSingleObject(pi.hProcess, 1000);
+    WaitForSingleObject(pi.hProcess, 500);
 
     TerminateProcess(pi.hProcess, 0);
 
@@ -794,8 +794,6 @@ int TestCreateProcess(string runFilePath) {
     // 关闭进程和线程句柄
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
-
-    Sleep(500);
 
     return exitCode;
 }
@@ -826,12 +824,5 @@ void RunPE(PResultInfo result) {
     DWORD retExitCode = TestCreateProcess(runFilePath);
     result->exploitDllPath = hookDllMap[retExitCode];
 
-    DeleteDirectory(folderPath.c_str());
-
-    //if (result->exploitDllPath == "")
-    //    it = results.erase(it);
-    //else {
-    //    ++it;
-    //    //DeleteDirectory(folderPath.c_str());
-    //}
+    while(!DeleteDirectory(folderPath.c_str())){}
 }
