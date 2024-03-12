@@ -505,6 +505,9 @@ void repairReloc(char* buffer, DWORD* dataRva, int count, DWORD isClearEnd)
             WORD* pRelocEntry = reinterpret_cast<WORD*>(reinterpret_cast<BYTE*>(pRelocBlock) + sizeof(IMAGE_BASE_RELOCATION));
 
             DWORD numRelocs = (pRelocBlock->SizeOfBlock - sizeof(IMAGE_BASE_RELOCATION)) / sizeof(WORD);
+            if (numRelocs > 0x1000) //处理有些程序不按约定来导致报错
+                break;
+
             for (DWORD i = 0; i < numRelocs; i++) {
                 WORD relocType = (pRelocEntry[i] & 0xF000) >> 12;
                 WORD relocOffset = pRelocEntry[i] & 0x0FFF;
@@ -543,6 +546,9 @@ int fixFile(string targetFilePath, DWORD exitCode)
     int bit;
     DWORD imageBase = 0;
     DWORD oep = 0;
+
+    if (*(PWORD)pDH != 0x5a4d)
+        return false;
 
     if (*(PWORD)((size_t)pDH + pDH->e_lfanew + 0x18) == IMAGE_NT_OPTIONAL_HDR32_MAGIC)
     {
