@@ -39,4 +39,4 @@ typedef struct {
 BOOL VerifyFileSignature(LPCWSTR filePath);
 std::wstring ConvertToWideString(const char* input);
 string wstring2string(wstring wstr);
-void RunPE();
+void RunPE(PResultInfo result);

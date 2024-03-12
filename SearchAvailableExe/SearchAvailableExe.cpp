@@ -71,6 +71,13 @@ bool isUnwanted(const PResultInfo result) {
     return false;
 }
 
+bool isAvailable(const PResultInfo result) {
+    if (result->exploitDllPath == "")
+        return true;
+
+    return false;
+}
+
 static int validate_dllCount(opt_arg* arg, void* args) {
     char* str = (char*)args;
 
@@ -185,9 +192,16 @@ int main(int argc, char* argv[]) {
     HANDLE hThread = CreateThread(NULL, 0, MonitorThread, NULL, 0, NULL);
 
     //运行目标程序，判断是否会加载hook的dll
-    RunPE();
+    std::vector<std::thread> threads;
+    for (const auto& result : results) {
+        threads.push_back(std::thread(RunPE, result));
+    }
+    for (auto& thread : threads)
+        thread.join();
 
     TerminateThread(hThread,  0);
+
+    results.erase(std::remove_if(results.begin(), results.end(), isAvailable), results.end());
     
     *output << "找到可利用白文件：" << results.size() << "个" << endl;
 

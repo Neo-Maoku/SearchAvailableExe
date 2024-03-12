@@ -800,42 +800,38 @@ int TestCreateProcess(string runFilePath) {
     return exitCode;
 }
 
-void RunPE() {
+void RunPE(PResultInfo result) {
     std::string currentPath = GetCurrentPath();
 
-    for (auto it = results.begin(); it != results.end();) {
-        PResultInfo result = *it;
+    string folderPath = CreateRandomFolder(currentPath);
 
-        string folderPath = CreateRandomFolder(currentPath);
+    string runFilePath = CopyFileToFolder(result->filePath, folderPath, result->isCreateWindow, NULL);
 
-        string runFilePath = CopyFileToFolder(result->filePath, folderPath, result->isCreateWindow, NULL);
+    map<DWORD, std::string> hookDllMap;
+    bool flag;
+    DWORD exitCode = 0x22222222;
 
-        map<DWORD, std::string> hookDllMap;
-        bool flag;
-        DWORD exitCode = 0x22222222;
-
-        for (const auto& dll : result->preLoadDlls) {
-            CopyFileToFolder(result->fileDir + dll, folderPath, true, exitCode);
-            hookDllMap[exitCode] = dll;
-            exitCode++;
-        }
-
-        for (const auto& dll : result->postLoadDlls) {
-            CopyFileToFolder(result->fileDir + dll, folderPath, true, exitCode);
-            hookDllMap[exitCode] = dll;
-            exitCode++;
-        }
-
-        DWORD retExitCode = TestCreateProcess(runFilePath);
-        result->exploitDllPath = hookDllMap[retExitCode];
-
-        DeleteDirectory(folderPath.c_str());
-
-        if (result->exploitDllPath == "")
-            it = results.erase(it);
-        else {
-            ++it;
-            //DeleteDirectory(folderPath.c_str());
-        }
+    for (const auto& dll : result->preLoadDlls) {
+        CopyFileToFolder(result->fileDir + dll, folderPath, true, exitCode);
+        hookDllMap[exitCode] = dll;
+        exitCode++;
     }
+
+    for (const auto& dll : result->postLoadDlls) {
+        CopyFileToFolder(result->fileDir + dll, folderPath, true, exitCode);
+        hookDllMap[exitCode] = dll;
+        exitCode++;
+    }
+
+    DWORD retExitCode = TestCreateProcess(runFilePath);
+    result->exploitDllPath = hookDllMap[retExitCode];
+
+    DeleteDirectory(folderPath.c_str());
+
+    //if (result->exploitDllPath == "")
+    //    it = results.erase(it);
+    //else {
+    //    ++it;
+    //    //DeleteDirectory(folderPath.c_str());
+    //}
 }
