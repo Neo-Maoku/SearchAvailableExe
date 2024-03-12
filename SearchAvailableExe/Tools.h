@@ -21,6 +21,7 @@ typedef struct {
     string filePath;
     string fileDir;
     int bit;
+    bool isCreateWindow;
     vector<char*> preLoadDlls;
     vector<char*> postLoadDlls;
     string exploitDllPath;

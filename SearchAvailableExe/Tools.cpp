@@ -215,7 +215,7 @@ bool hasWritePermission(const std::string& directoryPath) {
     return true;  // 创建文件成功，目录有写权限
 }
 
-bool printImportTableInfo(BYTE* buffer, PResultInfo result, LPCWSTR filePath)
+void printImportTableInfo(BYTE* buffer, PResultInfo result, LPCWSTR filePath)
 {
     const char* known_dlls[] = {"kernel32", "wow64cpu", "wowarmhw", "xtajit", "advapi32", "clbcatq", "combase", "COMDLG32", "coml2", "difxapi", "gdi32", "gdiplus", "IMAGEHLP", "IMM32", "MSCTF", "MSVCRT", "NORMALIZ", "NSI", "ole32", "OLEAUT32", "PSAPI", "rpcrt4", "sechost", "Setupapi", "SHCORE", "SHELL32", "SHLWAPI", "user32", "WLDAP32", "wow64cpu", "wow64", "wow64base", "wow64con", "wow64win", "WS2_32", "xtajit64"};
     string fileDir = GetDirectoryFromPath(ConvertWideToMultiByte(filePath)) + "\\";
@@ -280,6 +280,11 @@ bool printImportTableInfo(BYTE* buffer, PResultInfo result, LPCWSTR filePath)
                     searchDll(buffer, result, filePath, dllsName, fileDir);
                     break;
                 }
+                else if (containsIgnoreCase(temp->Name, "CreateDialogParam") != NULL || containsIgnoreCase(temp->Name, "CreateWindow") != NULL || containsIgnoreCase(temp->Name, "CreateProcess") != NULL)
+                {
+                    result->isCreateWindow = true;
+                    break;
+                }
             }
             INT = PIMAGE_THUNK_DATA((PBYTE)INT + THUNK_DATA_SIZE);//INT在INT数组中下移
             count++;
@@ -297,7 +302,7 @@ bool printImportTableInfo(BYTE* buffer, PResultInfo result, LPCWSTR filePath)
 
     free(dllsName);
 
-    return true;
+    return;
 }
 
 BOOL VerifyFileSignature(LPCWSTR filePath) {
@@ -360,9 +365,9 @@ BOOL VerifyFileSignature(LPCWSTR filePath) {
     ResultInfo* result = new ResultInfo;
     result->filePath = wstring2string(filePath);
     
-    bool ret = printImportTableInfo(pbFile, result, filePath);
+    printImportTableInfo(pbFile, result, filePath);
 
-    if (ret && result->preLoadDlls.size() > 0 || result->postLoadDlls.size() > 0) {
+    if (result->preLoadDlls.size() > 0 || result->postLoadDlls.size() > 0) {
         {
             std::lock_guard<std::mutex> lock(mtx);
             results.push_back(result);
@@ -420,7 +425,7 @@ void str_to_lower(char* str) {
     }
 }
 
-DWORD getImportFuncAddr(char* buffer, PIMAGE_IMPORT_DESCRIPTOR ImportTable, char* name, int bit) {
+DWORD getImportFuncAddr(char* buffer, PIMAGE_IMPORT_DESCRIPTOR ImportTable, char* name, int bit, bool isExeFile, bool isUserDll) {
     int THUNK_DATA_SIZE = 4;
     if (bit == 64)
         THUNK_DATA_SIZE = 8;
@@ -443,7 +448,16 @@ DWORD getImportFuncAddr(char* buffer, PIMAGE_IMPORT_DESCRIPTOR ImportTable, char
                 break;
             if (containsIgnoreCase(temp->Name, name) != 0)
             {
-                return foaToRVA(buffer, (size_t)IAT - (size_t)buffer + count * THUNK_DATA_SIZE);
+                if (isExeFile) {
+                    memset(temp->Name, 0, strlen(temp->Name));
+
+                    if (isUserDll)
+                        strcpy(temp->Name, "ShowWindow");
+                    else
+                        strcpy(temp->Name, "GetLastError");
+                }
+                else
+                    return foaToRVA(buffer, (size_t)IAT - (size_t)buffer + count * THUNK_DATA_SIZE);
             }
 
             if (strlen(temp->Name) >= hookNameLength) {
@@ -455,7 +469,7 @@ DWORD getImportFuncAddr(char* buffer, PIMAGE_IMPORT_DESCRIPTOR ImportTable, char
         count++;
     }
 
-    if (index > 0) {
+    if (!isExeFile && index > 0) {
         memset(str, 0, strlen(str));
         strcpy(str, name);
         return foaToRVA(buffer, (size_t)IAT - (size_t)buffer + index * THUNK_DATA_SIZE);
@@ -519,6 +533,8 @@ void repairReloc(char* buffer, DWORD* dataRva, int count, DWORD isClearEnd)
 
 int fixFile(string targetFilePath, DWORD exitCode)
 {
+    bool isExeFile = targetFilePath.back() == 'e' ? true : false;
+
     char* targetBuffer;
     DWORD fileSize = readFileContext(targetFilePath, &targetBuffer);
 
@@ -566,69 +582,82 @@ int fixFile(string targetFilePath, DWORD exitCode)
         char* pName = rvaToFOA(targetBuffer, ImportTable->Name) + targetBuffer;
         str_to_lower(pName);
 
-        for (int i = 0; i < nameSize; i++)
-        {
-            if (strstr(pName, names[i]) != NULL)
-                indexs[count++] = (size_t)ImportTable;
-        }
-
-        if (!isHook && strstr(pName, "kernel32.dll") != NULL) {
-            addr = getImportFuncAddr(targetBuffer, ImportTable, "ExitProcess", bit);
-            if (addr != 0) {
-                repairReloc(targetBuffer, clear, 0, oep + 11);
-
-                if (bit == 64) {
-                    unsigned char hook_data[] = { 0xB9, 0x00, 0x00, 0x00, 0x00, 0xFF, 0x15, 0xC8, 0xEF, 0x00, 0x00 };
-                    improtFunc = addr - (oep + 11);
-                    memcpy((char*)oep_foa_addr, hook_data, 11);
-                }
-                else {
-                    unsigned char hook_data[] = { 0x68, 0x00, 0x00, 0x00, 0x00, 0xFF, 0x15, 0x08, 0x20, 0x40, 0x00 };
-                    improtFunc = imageBase + addr;
-                    memcpy((char*)oep_foa_addr, hook_data, 11);
-
-                    DWORD dataRva[] = { oep + 7 };
-                    repairReloc(targetBuffer, dataRva, 1, 0);
-                }
-
-                *(PDWORD)(oep_foa_addr + 1) = exitCode;
-                *(PDWORD)(oep_foa_addr + 7) = improtFunc;
-                isHook = true;
+        if (isExeFile) {
+            //替换掉创建窗口的函数
+            if (strstr(pName, "user32.dll") != NULL) {
+                getImportFuncAddr(targetBuffer, ImportTable, "Create", bit, true, true);
+            }
+            else if (strstr(pName, "kernel32.dll") != NULL) {
+                getImportFuncAddr(targetBuffer, ImportTable, "CreateProcess", bit, true, false);
             }
         }
-        else if (!isHook && strstr(pName, "ntdll.dll") != NULL) {
-            addr = getImportFuncAddr(targetBuffer, ImportTable, "NtTerminateProcess", bit);
-            if (addr != 0) {
-                repairReloc(targetBuffer, clear, 0, oep + 16);
+        else {
+            for (int i = 0; i < nameSize; i++)
+            {
+                if (strstr(pName, names[i]) != NULL)
+                    indexs[count++] = (size_t)ImportTable;
+            }
 
-                if (bit == 64) {
-                    unsigned char hook_data[] = { 0xBA, 0x00, 0x00, 0x00, 0x00, 0xB9, 0xff, 0xff, 0xff, 0xff, 0xFF, 0x15, 0xC8, 0xEF, 0x00, 0x00 };
-                    improtFunc = addr - (oep + 16);
-                    memcpy((char*)oep_foa_addr, hook_data, 16);
+            if (!isHook && strstr(pName, "kernel32.dll") != NULL) {
+                addr = getImportFuncAddr(targetBuffer, ImportTable, "ExitProcess", bit, false, NULL);
+                if (addr != 0) {
+                    repairReloc(targetBuffer, clear, 0, oep + 11);
+
+                    if (bit == 64) {
+                        unsigned char hook_data[] = { 0xB9, 0x00, 0x00, 0x00, 0x00, 0xFF, 0x15, 0xC8, 0xEF, 0x00, 0x00 };
+                        improtFunc = addr - (oep + 11);
+                        memcpy((char*)oep_foa_addr, hook_data, 11);
+                    }
+                    else {
+                        unsigned char hook_data[] = { 0x68, 0x00, 0x00, 0x00, 0x00, 0xFF, 0x15, 0x08, 0x20, 0x40, 0x00 };
+                        improtFunc = imageBase + addr;
+                        memcpy((char*)oep_foa_addr, hook_data, 11);
+
+                        DWORD dataRva[] = { oep + 7 };
+                        repairReloc(targetBuffer, dataRva, 1, 0);
+                    }
+
+                    *(PDWORD)(oep_foa_addr + 1) = exitCode;
+                    *(PDWORD)(oep_foa_addr + 7) = improtFunc;
+                    isHook = true;
                 }
-                else {
-                    unsigned char hook_data[] = { 0x68, 0x00, 0x00, 0x00, 0x00, 0x68, 0xff, 0xff, 0xff, 0xff, 0xFF, 0x15, 0x08, 0x20, 0x40, 0x00 };
-                    improtFunc = imageBase + addr;
-                    memcpy((char*)oep_foa_addr, hook_data, 16);
+            }
+            else if (!isHook && strstr(pName, "ntdll.dll") != NULL) {
+                addr = getImportFuncAddr(targetBuffer, ImportTable, "NtTerminateProcess", bit, false, NULL);
+                if (addr != 0) {
+                    repairReloc(targetBuffer, clear, 0, oep + 16);
 
-                    DWORD dataRva[] = { oep + 12 };
-                    repairReloc(targetBuffer, dataRva, 1, 0);
+                    if (bit == 64) {
+                        unsigned char hook_data[] = { 0xBA, 0x00, 0x00, 0x00, 0x00, 0xB9, 0xff, 0xff, 0xff, 0xff, 0xFF, 0x15, 0xC8, 0xEF, 0x00, 0x00 };
+                        improtFunc = addr - (oep + 16);
+                        memcpy((char*)oep_foa_addr, hook_data, 16);
+                    }
+                    else {
+                        unsigned char hook_data[] = { 0x68, 0x00, 0x00, 0x00, 0x00, 0x68, 0xff, 0xff, 0xff, 0xff, 0xFF, 0x15, 0x08, 0x20, 0x40, 0x00 };
+                        improtFunc = imageBase + addr;
+                        memcpy((char*)oep_foa_addr, hook_data, 16);
+
+                        DWORD dataRva[] = { oep + 12 };
+                        repairReloc(targetBuffer, dataRva, 1, 0);
+                    }
+
+                    *(PDWORD)(oep_foa_addr + 1) = exitCode;
+                    *(PDWORD)(oep_foa_addr + 12) = improtFunc;
+                    isHook = true;
                 }
-
-                *(PDWORD)(oep_foa_addr + 1) = exitCode;
-                *(PDWORD)(oep_foa_addr + 12) = improtFunc;
-                isHook = true;
             }
         }
         ImportTable++;
     }
 
-    for (int i = 0; i < count; i++)
-    {
-        memcpy(tmp_ImportTable, (char*)indexs[i], 0x14);
-        tmp_ImportTable++;
+    if (!isExeFile) {
+        for (int i = 0; i < count; i++)
+        {
+            memcpy(tmp_ImportTable, (char*)indexs[i], 0x14);
+            tmp_ImportTable++;
+        }
+        memset(tmp_ImportTable, 0, 0x14);
     }
-    memset(tmp_ImportTable, 0, 0x14);
 
     saveFile(targetFilePath, targetBuffer, fileSize);
 
@@ -779,7 +808,7 @@ void RunPE() {
 
         string folderPath = CreateRandomFolder(currentPath);
 
-        string runFilePath = CopyFileToFolder(result->filePath, folderPath, false, NULL);
+        string runFilePath = CopyFileToFolder(result->filePath, folderPath, result->isCreateWindow, NULL);
 
         map<DWORD, std::string> hookDllMap;
         bool flag;
