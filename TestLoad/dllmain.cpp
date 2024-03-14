@@ -245,9 +245,8 @@ VOID UNLOOK()
     DWORD rdataLength;
     BYTE* textData = readSectionData((BYTE*)base, &rdataLength, ".text");
 
-    //适用于win7以上的系统，需要格外修改值
+    //适用于win7 server 08以上的系统，需要格外解锁
     size_t addr = memFind(textData, lock_count_flag, (size_t)textData + rdataLength, sizeof(lock_count_flag));
-    
     if (addr != 0)
     {
 #ifdef _WIN64
@@ -276,9 +275,10 @@ VOID UNLOOK()
 
     RtlLeaveCriticalSection((PRTL_CRITICAL_SECTION)Peb->LoaderLock);
 
-    //win7 和 08以下系统没有LdrFastFailInLoaderCallout导出函数
-    size_t hookAddr = (size_t)GetProcAddress((HMODULE)hModule, "LdrFastFailInLoaderCallout");
+    //上面代码是解决使用LoadLibrary动态加载DLL的死锁，下面代码是解决静态导入的DLL的死锁问题
     
+    //win7 和 08以上系统可以通过LdrFastFailInLoaderCallout导出函数定位到标记位地址
+    size_t hookAddr = (size_t)GetProcAddress((HMODULE)hModule, "LdrFastFailInLoaderCallout");
     if (hookAddr > 0) {
 #ifdef _WIN64
         hookAddr = hookAddr + 0x18 + 5 + *(PDWORD)(hookAddr + 0x18);
@@ -287,7 +287,7 @@ VOID UNLOOK()
 #endif
         *(PDWORD)hookAddr = 2;
     }
-
+    //win7 和 08以下系统没有LdrFastFailInLoaderCallout导出函数，需要搜索特征码定位到标记位地址
     addr = memFind(textData, win7_lock_count_flag, (size_t)textData + rdataLength, sizeof(win7_lock_count_flag));
     if (addr != 0)
     {   
