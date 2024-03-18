@@ -18,6 +18,7 @@ using namespace std;
 
 typedef struct {
     bool isWrite;
+    bool  isSaveFile;
     string filePath;
     string fileDir;
     int bit;
@@ -34,6 +35,7 @@ typedef struct {
     bool  isWrite;
     int   dllCount;
     int   bit;
+    bool  isSaveFile;
 } ARG_CONFIG, * PARG_CONFIG;
 
 BOOL VerifyFileSignature(LPCWSTR filePath);

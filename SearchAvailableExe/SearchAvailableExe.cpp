@@ -113,6 +113,7 @@ static void usage(void) {
     printf("       -w,--write: <bool>                      Whether to only output information about directories with write permissions, with the default value being 'no'.\n");
     printf("       -c,--count: <count>                     Controls the output of the number of DLLs loaded by white programs, only outputting if the count is less than or equal to a specified value. The default value is 1.\n");
     printf("       -b,--bit: <count>                       Select the output bitness, supporting 32, 64, and 96 bits. The default is 96 bits, while also outputting information for 32 and 64-bit white programs.\n");
+    printf("       -s,--save: <bool>                       Whether to save available files, default is not to save.\n");
     exit(0);
 }
 
@@ -160,6 +161,7 @@ int main(int argc, char* argv[]) {
     get_opt(argc, argv, OPT_TYPE_FLAG, &c.isWrite, "w", "write", NULL);
     get_opt(argc, argv, OPT_TYPE_DEC, &c.dllCount, "c", "count", validate_dllCount);
     get_opt(argc, argv, OPT_TYPE_DEC, &c.bit, "b", "bit", validate_bit);
+    get_opt(argc, argv, OPT_TYPE_FLAG, &c.isSaveFile, "s", "save", NULL);
 
     ostream* output = &cout;
     ofstream outputFile;
@@ -172,7 +174,7 @@ int main(int argc, char* argv[]) {
         }
         output = &outputFile;
     }
-
+    
     if (c.input[0] == 0) {
         for (char drive = 'A'; drive <= 'Z'; ++drive) {
             wstring rootDirectory = wstring(1, drive) + L":";
@@ -186,8 +188,6 @@ int main(int argc, char* argv[]) {
     sort(results.begin(), results.end(), compare);
 
     results.erase(std::remove_if(results.begin(), results.end(), isUnwanted), results.end());
-
-    *output << "dll信息统计完毕，初步符合要求的白程序有：" << results.size() << "个" << endl;
 
     HANDLE hThread = CreateThread(NULL, 0, MonitorThread, NULL, 0, NULL);
 
@@ -210,21 +210,24 @@ int main(int argc, char* argv[]) {
         *output << "程序位数: " << result->bit << " 目录是否可写: " << result->isWrite << endl;
         *output << "可利用DLL: " << result->exploitDllPath << endl;
 
-        /*if (result->preLoadDlls.size() > 0) {
-            *output << "预加载DLL个数: " << result->preLoadDlls.size() << endl;
-            for (const auto& dll : result->preLoadDlls) {
-                *output << dll << endl;
-                delete[] dll;
+        if (result->preLoadDlls.size() + result->postLoadDlls.size() > 1) {
+            *output << "需要复制以下DLL: " << endl;
+            if (result->preLoadDlls.size() > 0) {
+                for (const auto& dll : result->preLoadDlls) {
+                    if (result->exploitDllPath != dll)
+                        *output << dll << endl;
+                    delete[] dll;
+                }
+            }
+
+            if (result->postLoadDlls.size() > 0) {
+                for (const auto& dll : result->postLoadDlls) {
+                    if (result->exploitDllPath != dll)
+                        *output << dll << endl;
+                    delete[] dll;
+                }
             }
         }
-
-        if (result->postLoadDlls.size() > 0) {
-            *output << "动态加载DLL个数: " << result->postLoadDlls.size() << endl;
-            for (const auto& dll : result->postLoadDlls) {
-                *output << dll << endl;
-                delete[] dll;
-            }
-        }*/
 
         *output << "--------------------------------------------------" << endl;
 

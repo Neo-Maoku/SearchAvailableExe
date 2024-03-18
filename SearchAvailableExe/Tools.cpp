@@ -798,8 +798,10 @@ string CopyFileToFolder(const std::string& sourceFilePath, const std::string& ta
 
     CopyFileA(sourceFilePath.c_str(), targetFilePath.c_str(), FALSE);
 
-    if (isNeedHook)
+    if (isNeedHook) {
+        std::lock_guard<std::mutex> lock(mtx);
         fixFile(targetFilePath, exitCode);
+    }
 
     return targetFilePath;
 }
@@ -924,5 +926,6 @@ void RunPE(PResultInfo result) {
             result->exploitDllPath = "";
     }
     
-    while (!DeleteDirectory(folderPath.c_str())) {}
+    if (!(c.isSaveFile && result->exploitDllPath != ""))
+        while (!DeleteDirectory(folderPath.c_str())) {}
 }
