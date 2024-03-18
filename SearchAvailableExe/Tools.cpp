@@ -259,6 +259,9 @@ void printImportTableInfo(BYTE* buffer, PResultInfo result, LPCWSTR filePath)
         ImportTable++;
     }
 
+    bool isSearchLoadLibrary = false;
+    bool isSearchWindow = false;
+
     ImportTable = PIMAGE_IMPORT_DESCRIPTOR(rvaToFOA(buffer, directory.VirtualAddress) + buffer);
     while (ImportTable->Name)
     {
@@ -267,6 +270,7 @@ void printImportTableInfo(BYTE* buffer, PResultInfo result, LPCWSTR filePath)
         PIMAGE_THUNK_DATA INT = PIMAGE_THUNK_DATA(rvaToFOA(buffer, ImportTable->OriginalFirstThunk) + buffer);
         PIMAGE_IMPORT_BY_NAME temp = { 0 };
         int count = 0;
+        
         while (INT->u1.AddressOfData)//当遍历到的是最后一个是时候是会为0，所以随便遍历一个就好
         {
             if (!(INT->u1.Ordinal & 0x80000000))
@@ -275,15 +279,15 @@ void printImportTableInfo(BYTE* buffer, PResultInfo result, LPCWSTR filePath)
                 if ((BYTE*)temp == buffer) {
                     break;
                 }
-                else if (containsIgnoreCase(temp->Name, "loadlibrary") != NULL)
+                else if (!isSearchLoadLibrary && containsIgnoreCase(temp->Name, "loadlibrary") != NULL)
                 {
+                    isSearchLoadLibrary = true;
                     searchDll(buffer, result, filePath, dllsName, fileDir);
-                    break;
                 }
-                else if (containsIgnoreCase(temp->Name, "CreateDialogParam") != NULL || containsIgnoreCase(temp->Name, "CreateWindow") != NULL || containsIgnoreCase(temp->Name, "CreateProcess") != NULL)
+                else if (!isSearchWindow && (containsIgnoreCase(temp->Name, "CreateDialogParam") != NULL || containsIgnoreCase(temp->Name, "CreateWindow") != NULL || containsIgnoreCase(temp->Name, "CreateProcess") != NULL))
                 {
+                    isSearchWindow = true;
                     result->isCreateWindow = true;
-                    break;
                 }
             }
             INT = PIMAGE_THUNK_DATA((PBYTE)INT + THUNK_DATA_SIZE);//INT在INT数组中下移
@@ -871,7 +875,7 @@ int TestCreateProcess(string runFilePath, DWORD dwMilliseconds) {
     TerminateProcess(pi.hProcess, 0);
 
     // 获取进程的退出码
-    DWORD exitCode;
+    DWORD exitCode = 0;
     GetExitCodeProcess(pi.hProcess, &exitCode);  
 
     // 关闭进程和线程句柄
@@ -904,7 +908,7 @@ void RunPE(PResultInfo result) {
         exitCode++;
     }
 
-    DWORD retExitCode = TestCreateProcess(runFilePath, 500);
+    DWORD retExitCode = TestCreateProcess(runFilePath, 1500);
     result->exploitDllPath = hookDllMap[retExitCode];
 
     if (result->exploitDllPath != "") {
