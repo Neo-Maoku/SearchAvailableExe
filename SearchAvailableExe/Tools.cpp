@@ -290,7 +290,7 @@ void printImportTableInfo(BYTE* buffer, PResultInfo result, LPCWSTR filePath)
             count++;
         }
 
-        char fileFullPath[255] = { 0 };
+        char fileFullPath[0x255] = { 0 };
         strcat(fileFullPath, fileDir.c_str());
         strcat(fileFullPath, pName);
 
