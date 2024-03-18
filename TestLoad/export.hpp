@@ -1,4 +1,4 @@
-extern "C" __declspec(dllexport) int DebugCreate() {
+extern "C" __declspec(dllexport) int TestLoad__________________________________________________________________________________________________1() {
     return 1;
 }
 

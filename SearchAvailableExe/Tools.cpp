@@ -672,6 +672,83 @@ int fixFile(string targetFilePath, DWORD exitCode)
     return 0;
 }
 
+bool fixExportTable(string targetFilePath, string sourceFilePath) {
+    char* targetBuffer;
+    DWORD fileSize = readFileContext(targetFilePath, &targetBuffer);
+
+    PIMAGE_DOS_HEADER pDH = (PIMAGE_DOS_HEADER)targetBuffer;
+    PIMAGE_NT_HEADERS pNtH = (PIMAGE_NT_HEADERS)((DWORD)pDH + pDH->e_lfanew);
+    PIMAGE_OPTIONAL_HEADER pOH = &pNtH->OptionalHeader;
+    IMAGE_DATA_DIRECTORY exportDirectory;
+
+    if (*(PWORD)((size_t)pDH + pDH->e_lfanew + 0x18) == IMAGE_NT_OPTIONAL_HDR32_MAGIC)
+    {
+        PIMAGE_NT_HEADERS32  pNtH32 = PIMAGE_NT_HEADERS32((size_t)pDH + pDH->e_lfanew);
+        PIMAGE_OPTIONAL_HEADER32 pOH32 = &pNtH32->OptionalHeader;
+
+        exportDirectory = pOH32->DataDirectory[0];
+    }
+    else {
+        PIMAGE_NT_HEADERS64 pNtH64 = PIMAGE_NT_HEADERS64((size_t)pDH + pDH->e_lfanew);
+        PIMAGE_OPTIONAL_HEADER64 pOH64 = &pNtH64->OptionalHeader;
+
+        exportDirectory = pOH64->DataDirectory[0];
+    }
+
+    IMAGE_EXPORT_DIRECTORY* exportDir = (IMAGE_EXPORT_DIRECTORY*)(targetBuffer + rvaToFOA(targetBuffer, exportDirectory.VirtualAddress));
+
+    DWORD* nameRVAs = (DWORD*)(targetBuffer + rvaToFOA(targetBuffer, exportDir->AddressOfNames));
+
+    char* sourceBuffer;
+    readFileContext(sourceFilePath, &sourceBuffer);
+
+    pDH = (PIMAGE_DOS_HEADER)sourceBuffer;
+    pNtH = (PIMAGE_NT_HEADERS)((size_t)pDH + pDH->e_lfanew);
+    pOH = &pNtH->OptionalHeader;
+
+    if (*(PWORD)((size_t)pDH + pDH->e_lfanew + 0x18) == IMAGE_NT_OPTIONAL_HDR32_MAGIC)
+    {
+        PIMAGE_NT_HEADERS32  pNtH32 = PIMAGE_NT_HEADERS32((size_t)pDH + pDH->e_lfanew);
+        PIMAGE_OPTIONAL_HEADER32 pOH32 = &pNtH32->OptionalHeader;
+
+        exportDirectory = pOH32->DataDirectory[0];
+    }
+    else {
+        PIMAGE_NT_HEADERS64 pNtH64 = PIMAGE_NT_HEADERS64((size_t)pDH + pDH->e_lfanew);
+        PIMAGE_OPTIONAL_HEADER64 pOH64 = &pNtH64->OptionalHeader;
+
+        exportDirectory = pOH64->DataDirectory[0];
+    }
+
+    IMAGE_EXPORT_DIRECTORY* exportDir_source = (IMAGE_EXPORT_DIRECTORY*)(sourceBuffer + rvaToFOA(sourceBuffer, exportDirectory.VirtualAddress));
+
+    DWORD* nameRVAs_source = (DWORD*)(sourceBuffer + rvaToFOA(sourceBuffer, exportDir_source->AddressOfNames));
+
+    if (exportDir_source->NumberOfNames > 100) {
+        delete[] targetBuffer;
+        delete[] sourceBuffer;
+        return false;
+    }
+
+    for (int i = 0; i < exportDir_source->NumberOfNames; i++)
+    {
+        DWORD nameRVA_source = nameRVAs_source[i];
+        char* exportFunctionName_source = sourceBuffer + rvaToFOA(sourceBuffer, nameRVA_source);
+
+        DWORD nameRVA = nameRVAs[i];
+        char* exportFunctionName = targetBuffer + rvaToFOA(targetBuffer, nameRVA);
+
+        memcpy(exportFunctionName, exportFunctionName_source, strlen(exportFunctionName_source) + 1);
+    }
+
+    saveFile(targetFilePath, targetBuffer, fileSize);
+
+    delete[] targetBuffer;
+    delete[] sourceBuffer;
+
+    return true;
+}
+
 std::string GetCurrentPath() {
     char buffer[MAX_PATH];
     GetModuleFileNameA(NULL, buffer, MAX_PATH);
@@ -768,12 +845,10 @@ bool DeleteDirectory(const string& path) {
     return true;
 }
 
-int TestCreateProcess(string runFilePath) {
-    // 定义进程信息结构体
+int TestCreateProcess(string runFilePath, DWORD dwMilliseconds) {
     STARTUPINFOA si = { sizeof(si) };
     PROCESS_INFORMATION pi;
 
-    // 创建进程
     if (!CreateProcessA(
         nullptr,                        // 指向可执行文件名的指针（在这里，nullptr表示使用当前可执行文件）
         (char*)runFilePath.c_str(),     // 可执行文件的路径
@@ -789,13 +864,13 @@ int TestCreateProcess(string runFilePath) {
     }
 
     // 等待进程结束
-    WaitForSingleObject(pi.hProcess, 500);
+    WaitForSingleObject(pi.hProcess, dwMilliseconds);
 
     TerminateProcess(pi.hProcess, 0);
 
     // 获取进程的退出码
     DWORD exitCode;
-    GetExitCodeProcess(pi.hProcess, &exitCode);    
+    GetExitCodeProcess(pi.hProcess, &exitCode);  
 
     // 关闭进程和线程句柄
     CloseHandle(pi.hProcess);
@@ -827,8 +902,27 @@ void RunPE(PResultInfo result) {
         exitCode++;
     }
 
-    DWORD retExitCode = TestCreateProcess(runFilePath);
+    DWORD retExitCode = TestCreateProcess(runFilePath, 500);
     result->exploitDllPath = hookDllMap[retExitCode];
 
-    while(!DeleteDirectory(folderPath.c_str())){}
+    if (result->exploitDllPath != "") {
+        string hookFilePath = currentPath + "\\TestLoad_x86.dll";
+        if (result->bit == 64)
+            hookFilePath = currentPath + "\\TestLoad_x64.dll";
+
+        string targetFilePath = folderPath + "\\" + result->exploitDllPath;
+        CopyFileA(hookFilePath.c_str(), targetFilePath.c_str(), FALSE);
+        bool isSucc = fixExportTable(targetFilePath, result->fileDir + result->exploitDllPath);
+
+        if (isSucc) {
+            targetFilePath = folderPath + "\\" + result->filePath.substr(result->filePath.find_last_of("\\/") + 1);
+
+            TestCreateProcess(targetFilePath, 3000);
+        }
+
+        if (!std::filesystem::exists(folderPath +  "\\test.txt"))
+            result->exploitDllPath = "";
+    }
+    
+    while (!DeleteDirectory(folderPath.c_str())) {}
 }

