@@ -30,3 +30,9 @@ https://github.com/Neo-Maoku/SearchAvailableExe/assets/26914648/72d7a8f6-c846-4d
 -b：指定搜索的可利用白文件是否为32或64位，默认搜索32和64位程序
 
 -s：是否保存搜索到的可利用文件临时目录，默认为否
+
+-l：过滤dll加载方式，1是静态加载，2是动态加载，3是静态加动态。默认值为3
+
+B站地址：
+
+【一款自研的自动化挖掘白利用程序工具】 https://www.bilibili.com/video/BV1bm421n73Z/?share_source=copy_web&vd_source=c75cdcc6b49a06fd849f2d392e8e3218
