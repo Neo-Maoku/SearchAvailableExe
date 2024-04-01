@@ -75,6 +75,9 @@ bool isAvailable(const PResultInfo result) {
     if (result->exploitDllPath == "")
         return true;
 
+    if ((c.loadType == 1 && result->loadType != 1) || (c.loadType == 2 && result->loadType != 2))
+        return true;
+
     return false;
 }
 
@@ -114,6 +117,7 @@ static void usage(void) {
     printf("       -c,--count: <count>                     Controls the output of the number of DLLs loaded by white programs, only outputting if the count is less than or equal to a specified value. The default value is 1.\n");
     printf("       -b,--bit: <count>                       Select the output bitness, supporting 32, 64, and 96 bits. The default is 96 bits, while also outputting information for 32 and 64-bit white programs.\n");
     printf("       -s,--save: <bool>                       Whether to save available files, default is not to save.\n");
+    printf("       -l,--load: <loadType>                   Dll loading method, 1 for static loading, 2 for dynamic loading, and 3 for both static and dynamic loading. Default value is 3.\n");
     exit(0);
 }
 
@@ -154,6 +158,7 @@ int main(int argc, char* argv[]) {
     
     c.dllCount = 1;
     c.bit = 96;
+    c.loadType = 3;
 
     get_opt(argc, argv, OPT_TYPE_NONE, NULL, "h;?", "help", usage);
     get_opt(argc, argv, OPT_TYPE_STRING, c.output, "o", "output", NULL);
@@ -162,6 +167,7 @@ int main(int argc, char* argv[]) {
     get_opt(argc, argv, OPT_TYPE_DEC, &c.dllCount, "c", "count", validate_dllCount);
     get_opt(argc, argv, OPT_TYPE_DEC, &c.bit, "b", "bit", validate_bit);
     get_opt(argc, argv, OPT_TYPE_FLAG, &c.isSaveFile, "s", "save", NULL);
+    get_opt(argc, argv, OPT_TYPE_DEC, &c.loadType, "l", "load", NULL);
 
     ostream* output = &cout;
     ofstream outputFile;
@@ -210,7 +216,7 @@ int main(int argc, char* argv[]) {
 
     for (const auto& result : results) {
         *output << result->filePath << endl;
-        *output << "程序位数: " << result->bit << " 目录是否可写: " << result->isWrite << endl;
+        *output << "程序位数: " << result->bit << " 目录是否可写: " << (result->isWrite==1 ? "是" : "否") << " Dll加载方式: " << (result->loadType == 1 ? "静态加载" : "动态加载") << endl;
         *output << "可利用DLL: " << result->exploitDllPath << endl;
 
         if (result->preLoadDlls.size() + result->postLoadDlls.size() > 1) {

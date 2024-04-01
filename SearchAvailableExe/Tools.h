@@ -26,6 +26,7 @@ typedef struct {
     vector<char*> preLoadDlls;
     vector<char*> postLoadDlls;
     string exploitDllPath;
+    int   loadType;
 } ResultInfo, * PResultInfo;
 
 #define STRING_MAX 256
@@ -36,6 +37,7 @@ typedef struct {
     int   dllCount;
     int   bit;
     bool  isSaveFile;
+    int   loadType;
 } ARG_CONFIG, * PARG_CONFIG;
 
 BOOL VerifyFileSignature(LPCWSTR filePath);

@@ -902,6 +902,7 @@ void RunPE(PResultInfo result) {
         exitCode++;
     }
 
+    exitCode = 0x33333333;
     for (const auto& dll : result->postLoadDlls) {
         CopyFileToFolder(result->fileDir + dll, folderPath, true, exitCode);
         hookDllMap[exitCode] = dll;
@@ -912,6 +913,11 @@ void RunPE(PResultInfo result) {
     result->exploitDllPath = hookDllMap[retExitCode];
 
     if (result->exploitDllPath != "") {
+        if (retExitCode >= 0x33333333)
+            result->loadType = 2;
+        else
+            result->loadType = 1;
+
         string hookFilePath = currentPath + "\\TestLoad_x86.dll";
         if (result->bit == 64)
             hookFilePath = currentPath + "\\TestLoad_x64.dll";
