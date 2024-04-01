@@ -149,7 +149,7 @@ DWORD WINAPI MonitorThread(LPVOID lpParam) {
 }
 
 int main(int argc, char* argv[]) {
-    
+    //处理传入的参数
     memset(&c, 0, sizeof(c));
     
     c.dllCount = 1;
@@ -174,7 +174,7 @@ int main(int argc, char* argv[]) {
         }
         output = &outputFile;
     }
-    
+    //第一步：多线程递归遍历指定目录，筛选出带有签名的可执行文件，并获取可能需要加载dll信息等
     if (c.input[0] == 0) {
         for (char drive = 'A'; drive <= 'Z'; ++drive) {
             wstring rootDirectory = wstring(1, drive) + L":";
@@ -184,14 +184,16 @@ int main(int argc, char* argv[]) {
     else {
         ListExecutableFiles(ConvertToWideString(c.input));
     }
-
+    //对遍历的结果排序
     sort(results.begin(), results.end(), compare);
 
+    //根据指定条件对结果过滤
     results.erase(std::remove_if(results.begin(), results.end(), isUnwanted), results.end());
 
+    //创建线程，监听第二步运行时的报错弹窗，及时关闭
     HANDLE hThread = CreateThread(NULL, 0, MonitorThread, NULL, 0, NULL);
 
-    //运行目标程序，判断是否会加载hook的dll
+    //第二步：多线程运行找到的白程序，判断是否会加载被hook的dll，并进行上线测试
     std::vector<std::thread> threads;
     for (const auto& result : results) {
         threads.push_back(std::thread(RunPE, result));
@@ -201,6 +203,7 @@ int main(int argc, char* argv[]) {
 
     TerminateThread(hThread,  0);
 
+    //对结果进行过滤，去除不满足条件的白程序
     results.erase(std::remove_if(results.begin(), results.end(), isAvailable), results.end());
     
     *output << "找到可利用白文件：" << results.size() << "个" << endl;

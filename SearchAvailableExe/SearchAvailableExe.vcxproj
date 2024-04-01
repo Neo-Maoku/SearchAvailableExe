@@ -101,6 +101,7 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>false</GenerateDebugInformation>
       <AdditionalDependencies>Crypt32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <FixedBaseAddress>false</FixedBaseAddress>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -134,6 +135,8 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>false</GenerateDebugInformation>
       <AdditionalDependencies>Crypt32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <RandomizedBaseAddress>true</RandomizedBaseAddress>
+      <FixedBaseAddress>false</FixedBaseAddress>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
