@@ -151,50 +151,57 @@ std::string GetDirectoryFromPath(const std::string& filePath) {
 
 void searchDll(BYTE* buffer, PResultInfo result, LPCWSTR filePath, char* dllsName, string fileDir) {
     DWORD rdataLength;
-    BYTE* rdata = readSectionData(buffer, &rdataLength, ".rdata");
-    if (rdata != 0) {
-        char fileFullPath[0x255] = { 0 };
-        strcat(fileFullPath, fileDir.c_str());
-        int fileDirLength = fileDir.length();
-        DWORD vaule, vaule1;
-        char* str;
-        int strLength;
-        char ch;
-        int index = 0;
+    char fileFullPath[0x255] = { 0 };
+    strcat(fileFullPath, fileDir.c_str());
+    int fileDirLength = fileDir.length();
+    map<string, bool> postDllMap;
+    char* secNames[] = {".rdata", ".rsrc"};
 
-        for (int i = rdataLength - 8; i > 0; --i, index = 0) {
-            vaule = *(PDWORD)((PBYTE)rdata + i);
-            vaule1 = *(PDWORD)((PBYTE)rdata + i + 4);
-            
-            if (vaule == 0x6c6c642e)
-                index = 1;
-            else if (vaule1 == 0x6c && vaule == 0x6c0064)
-                index = 2;
+    for (int i = 0; i < 2; i++) {
+        BYTE* rdata = readSectionData(buffer, &rdataLength, secNames[i]);
+        if (rdata != 0) {
+            DWORD vaule, vaule1;
+            char* str;
+            int strLength;
+            char ch;
+            int index = 0;
 
-            if (index > 0) {
-                i -= index;
-                ch = rdata[i];
-                while (((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == '.' || ch == '-')) {
+            for (int i = rdataLength - 8; i > 0; --i, index = 0) {
+                vaule = *(PDWORD)((PBYTE)rdata + i);
+                vaule1 = *(PDWORD)((PBYTE)rdata + i + 4);
+
+                if (vaule == 0x6c6c642e)
+                    index = 1;
+                else if (vaule1 == 0x6c && vaule == 0x6c0064)
+                    index = 2;
+
+                if (index > 0) {
                     i -= index;
                     ch = rdata[i];
+                    while (((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == '.' || ch == '-')) {
+                        i -= index;
+                        ch = rdata[i];
+                    }
+
+                    if (ch != 0)
+                        continue;
+
+                    if (index == 1)
+                        str = (char*)(rdata + i + 1);
+                    else
+                        str = ConvertWideToMultiByte((wchar_t*)(rdata + i + 2));
+
+                    strLength = strlen(str);
+                    if (str[strLength - 1] != 'l')
+                        continue;
+
+                    memcpy(fileFullPath + fileDirLength, str, strLength + 1);
+
+                    if (postDllMap[str] == false && filesystem::exists(filesystem::path(fileFullPath)) && containsIgnoreCase(dllsName, str) == NULL) {
+                        result->postLoadDlls.push_back(_strdup(str));
+                        postDllMap[str] = true;
+                    }
                 }
-
-                if (ch != 0)
-                    continue;
-
-                if (index == 1)
-                    str = (char*)(rdata + i + 1);
-                else
-                    str = ConvertWideToMultiByte((wchar_t*)(rdata + i + 2));
-
-                strLength = strlen(str);
-                if (str[strLength-1] != 'l')
-                    continue;
-
-                memcpy(fileFullPath + fileDirLength, str, strLength + 1);
-
-                if (filesystem::exists(filesystem::path(fileFullPath)) && containsIgnoreCase(dllsName, str) == NULL)
-                    result->postLoadDlls.push_back(_strdup(str));
             }
         }
     }
@@ -309,6 +316,14 @@ void printImportTableInfo(BYTE* buffer, PResultInfo result, LPCWSTR filePath)
     return;
 }
 
+size_t memorySum(LPVOID shellcode, DWORD fileSize)
+{
+    size_t sum = 0;
+    for (int i = 0; i < fileSize; i+=0x10)
+        sum += *(size_t*)((PBYTE)shellcode + i);
+    return sum;
+}
+
 BOOL VerifyFileSignature(LPCWSTR filePath) {
     DWORD dwEncoding, dwContentType, dwFormatType;
     HCERTSTORE hStore = NULL;
@@ -368,6 +383,9 @@ BOOL VerifyFileSignature(LPCWSTR filePath) {
     
     ResultInfo* result = new ResultInfo;
     result->filePath = wstring2string(filePath);
+    result->isCreateWindow = false;
+    result->isSystemDll = false;
+    result->fileHash = memorySum(pbFile, dwFileSize);
     
     printImportTableInfo(pbFile, result, filePath);
 
@@ -608,51 +626,56 @@ int fixFile(string targetFilePath, DWORD exitCode)
                     indexs[count++] = (size_t)ImportTable;
             }
 
+            DWORD offset = 0;
             if (!isHook && strstr(pName, "kernel32.dll") != NULL) {
                 addr = getImportFuncAddr(targetBuffer, ImportTable, "ExitProcess", bit, false, NULL);
                 if (addr != 0) {
-                    repairReloc(targetBuffer, clear, 0, oep + 11);
-
                     if (bit == 64) {
-                        unsigned char hook_data[] = { 0xB9, 0x00, 0x00, 0x00, 0x00, 0xFF, 0x15, 0xC8, 0xEF, 0x00, 0x00 };
-                        improtFunc = addr - (oep + 11);
-                        memcpy((char*)oep_foa_addr, hook_data, 11);
+                        unsigned char hook_data[] = { 0x48, 0x83, 0xEC, 0x28, 0xB9, 0x00, 0x00, 0x00, 0x00, 0xFF, 0x15, 0xC8, 0xEF, 0x00, 0x00 };
+                        improtFunc = addr - (oep + sizeof(hook_data));
+                        memcpy((char*)oep_foa_addr, hook_data, sizeof(hook_data));
+                        repairReloc(targetBuffer, clear, 0, oep + sizeof(hook_data));
+                        offset = 4;
                     }
                     else {
-                        unsigned char hook_data[] = { 0x68, 0x00, 0x00, 0x00, 0x00, 0xFF, 0x15, 0x08, 0x20, 0x40, 0x00 };
+                        unsigned char hook_data[] = { 0x83, 0xEC, 0x14, 0x68, 0x00, 0x00, 0x00, 0x00, 0xFF, 0x15, 0x08, 0x20, 0x40, 0x00 };
                         improtFunc = imageBase + addr;
-                        memcpy((char*)oep_foa_addr, hook_data, 11);
+                        memcpy((char*)oep_foa_addr, hook_data, sizeof(hook_data));
+                        repairReloc(targetBuffer, clear, 0, oep + sizeof(hook_data));
+                        offset = 3;
 
-                        DWORD dataRva[] = { oep + 7 };
+                        DWORD dataRva[] = { oep + 7 + offset };
                         repairReloc(targetBuffer, dataRva, 1, 0);
                     }
 
-                    *(PDWORD)(oep_foa_addr + 1) = exitCode;
-                    *(PDWORD)(oep_foa_addr + 7) = improtFunc;
+                    *(PDWORD)(oep_foa_addr + 1 + offset) = exitCode;
+                    *(PDWORD)(oep_foa_addr + 7 + offset) = improtFunc;
                     isHook = true;
                 }
             }
             else if (!isHook && strstr(pName, "ntdll.dll") != NULL) {
                 addr = getImportFuncAddr(targetBuffer, ImportTable, "NtTerminateProcess", bit, false, NULL);
                 if (addr != 0) {
-                    repairReloc(targetBuffer, clear, 0, oep + 16);
-
                     if (bit == 64) {
-                        unsigned char hook_data[] = { 0xBA, 0x00, 0x00, 0x00, 0x00, 0xB9, 0xff, 0xff, 0xff, 0xff, 0xFF, 0x15, 0xC8, 0xEF, 0x00, 0x00 };
-                        improtFunc = addr - (oep + 16);
-                        memcpy((char*)oep_foa_addr, hook_data, 16);
+                        unsigned char hook_data[] = { 0x48, 0x83, 0xEC, 0x28, 0xBA, 0x00, 0x00, 0x00, 0x00, 0xB9, 0xff, 0xff, 0xff, 0xff, 0xFF, 0x15, 0xC8, 0xEF, 0x00, 0x00 };
+                        improtFunc = addr - (oep + sizeof(hook_data));
+                        memcpy((char*)oep_foa_addr, hook_data, sizeof(hook_data));
+                        repairReloc(targetBuffer, clear, 0, oep + sizeof(hook_data));
+                        offset = 4;
                     }
                     else {
-                        unsigned char hook_data[] = { 0x68, 0x00, 0x00, 0x00, 0x00, 0x68, 0xff, 0xff, 0xff, 0xff, 0xFF, 0x15, 0x08, 0x20, 0x40, 0x00 };
+                        unsigned char hook_data[] = { 0x83, 0xEC, 0x14, 0x68, 0x00, 0x00, 0x00, 0x00, 0x68, 0xff, 0xff, 0xff, 0xff, 0xFF, 0x15, 0x08, 0x20, 0x40, 0x00 };
                         improtFunc = imageBase + addr;
-                        memcpy((char*)oep_foa_addr, hook_data, 16);
+                        memcpy((char*)oep_foa_addr, hook_data, sizeof(hook_data));
+                        repairReloc(targetBuffer, clear, 0, oep + sizeof(hook_data));
+                        offset = 3;
 
-                        DWORD dataRva[] = { oep + 12 };
+                        DWORD dataRva[] = { oep + 12 + offset };
                         repairReloc(targetBuffer, dataRva, 1, 0);
                     }
 
-                    *(PDWORD)(oep_foa_addr + 1) = exitCode;
-                    *(PDWORD)(oep_foa_addr + 12) = improtFunc;
+                    *(PDWORD)(oep_foa_addr + 1 + offset) = exitCode;
+                    *(PDWORD)(oep_foa_addr + 12 + offset) = improtFunc;
                     isHook = true;
                 }
             }
@@ -934,6 +957,9 @@ void RunPE(PResultInfo result) {
 
         if (!std::filesystem::exists(folderPath +  "\\test.txt"))
             result->exploitDllPath = "";
+
+        if (std::filesystem::exists("C:\\Windows\\SysWOW64\\" + result->exploitDllPath) || std::filesystem::exists("C:\\Windows\\System32\\" + result->exploitDllPath))
+            result->isSystemDll = true;
     }
     
     if (!(c.isSaveFile && result->exploitDllPath != ""))

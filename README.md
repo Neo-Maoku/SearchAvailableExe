@@ -33,6 +33,18 @@ https://github.com/Neo-Maoku/SearchAvailableExe/assets/26914648/72d7a8f6-c846-4d
 
 -l：过滤dll加载方式，1是静态加载，2是动态加载，3是静态加动态。默认值为3
 
+-p：是否过滤系统dll，系统dll是指在system32或syswow64目录下存在的dll。默认为否
+
 B站地址：
 
 【一款自研的自动化挖掘白利用程序工具】 https://www.bilibili.com/video/BV1bm421n73Z/?share_source=copy_web&vd_source=c75cdcc6b49a06fd849f2d392e8e3218
+
+### 版本更新日志
+
+V2.0.0
+
+1.添加参数过滤系统dll参数
+2.优化当静态加载数量为1，也有动态加载时会被过滤掉的bug
+3.修复hook DLLMain导致栈不平衡bug
+4.优化有多个相同文件时，白程序只输出一次
+5.修复相同动态加载dll记录多次bug

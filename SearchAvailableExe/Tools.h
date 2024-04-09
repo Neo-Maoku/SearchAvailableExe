@@ -18,7 +18,6 @@ using namespace std;
 
 typedef struct {
     bool isWrite;
-    bool  isSaveFile;
     string filePath;
     string fileDir;
     int bit;
@@ -27,6 +26,8 @@ typedef struct {
     vector<char*> postLoadDlls;
     string exploitDllPath;
     int   loadType;
+    bool  isSystemDll;
+    size_t fileHash;
 } ResultInfo, * PResultInfo;
 
 #define STRING_MAX 256
@@ -38,6 +39,7 @@ typedef struct {
     int   bit;
     bool  isSaveFile;
     int   loadType;
+    bool  isPassSystemDll;
 } ARG_CONFIG, * PARG_CONFIG;
 
 BOOL VerifyFileSignature(LPCWSTR filePath);

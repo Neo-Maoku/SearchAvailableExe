@@ -57,6 +57,7 @@ bool compare(PResultInfo a, PResultInfo b) {
     }
 }
 
+map<size_t, bool> fileHashMap;
 bool isUnwanted(const PResultInfo result) {
     int preSize = result->preLoadDlls.size();
     int postSize = result->postLoadDlls.size();
@@ -65,8 +66,12 @@ bool isUnwanted(const PResultInfo result) {
         return true;
     if ((c.bit == 32 && result->bit != 32) || (c.bit == 64 && result->bit != 64))
         return true;
-    if (preSize + postSize > c.dllCount)
+    if (preSize > c.dllCount)
         return true;
+
+    if (fileHashMap[result->fileHash])
+        return true;
+    fileHashMap[result->fileHash] = true;
 
     return false;
 }
@@ -76,6 +81,16 @@ bool isAvailable(const PResultInfo result) {
         return true;
 
     if ((c.loadType == 1 && result->loadType != 1) || (c.loadType == 2 && result->loadType != 2))
+        return true;
+
+    int preSize = result->preLoadDlls.size();
+    int postSize = result->postLoadDlls.size();
+
+    //如果是动态加载，需要加上静态dll个数去判断
+    if (result->loadType == 2 && (preSize + postSize > c.dllCount))
+        return true;
+
+    if (c.isPassSystemDll && result->isSystemDll)
         return true;
 
     return false;
@@ -118,6 +133,7 @@ static void usage(void) {
     printf("       -b,--bit: <count>                       Select the output bitness, supporting 32, 64, and 96 bits. The default is 96 bits, while also outputting information for 32 and 64-bit white programs.\n");
     printf("       -s,--save: <bool>                       Whether to save available files, default is not to save.\n");
     printf("       -l,--load: <loadType>                   Dll loading method, 1 for static loading, 2 for dynamic loading, and 3 for both static and dynamic loading. Default value is 3.\n");
+    printf("       -p,--pass: <bool>                       Filter system DLLs.\n");
     exit(0);
 }
 
@@ -168,6 +184,7 @@ int main(int argc, char* argv[]) {
     get_opt(argc, argv, OPT_TYPE_DEC, &c.bit, "b", "bit", validate_bit);
     get_opt(argc, argv, OPT_TYPE_FLAG, &c.isSaveFile, "s", "save", NULL);
     get_opt(argc, argv, OPT_TYPE_DEC, &c.loadType, "l", "load", NULL);
+    get_opt(argc, argv, OPT_TYPE_FLAG, &c.isPassSystemDll, "p", "pass", NULL);
 
     ostream* output = &cout;
     ofstream outputFile;
@@ -219,7 +236,7 @@ int main(int argc, char* argv[]) {
         *output << "程序位数: " << result->bit << " 目录是否可写: " << (result->isWrite==1 ? "是" : "否") << " Dll加载方式: " << (result->loadType == 1 ? "静态加载" : "动态加载") << endl;
         *output << "可利用DLL: " << result->exploitDllPath << endl;
 
-        if (result->preLoadDlls.size() + result->postLoadDlls.size() > 1) {
+        if ((result->loadType == 1 && result->preLoadDlls.size() > 1) || (result->loadType == 2 && result->preLoadDlls.size() + result->postLoadDlls.size() > 1)) {
             *output << "需要复制以下DLL: " << endl;
             if (result->preLoadDlls.size() > 0) {
                 for (const auto& dll : result->preLoadDlls) {
@@ -229,7 +246,7 @@ int main(int argc, char* argv[]) {
                 }
             }
 
-            if (result->postLoadDlls.size() > 0) {
+            if (result->loadType == 2 && result->postLoadDlls.size() > 0) {
                 for (const auto& dll : result->postLoadDlls) {
                     if (result->exploitDllPath != dll)
                         *output << dll << endl;
