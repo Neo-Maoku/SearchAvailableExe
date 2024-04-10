@@ -40,6 +40,7 @@ typedef struct {
     bool  isSaveFile;
     int   loadType;
     bool  isPassSystemDll;
+    int   isAllSectionSearch;
 } ARG_CONFIG, * PARG_CONFIG;
 
 BOOL VerifyFileSignature(LPCWSTR filePath);

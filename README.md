@@ -35,6 +35,16 @@ https://github.com/Neo-Maoku/SearchAvailableExe/assets/26914648/72d7a8f6-c846-4d
 
 -p：是否过滤系统dll，系统dll是指在system32或syswow64目录下存在的dll。默认为否
 
+-a：是否开启全段扫描动态dll，默认是扫描rdata和rsrc段
+
+```c
+SearchAvailableExe.exe
+SearchAvailableExe.exe -p -i "D:" -b 32
+SearchAvailableExe.exe -i "D:" -o result.txt -c 2
+SearchAvailableExe.exe -i "D:" -l 2 -w
+SearchAvailableExe.exe -s -a 1
+```
+
 B站地址：
 
 【一款自研的自动化挖掘白利用程序工具】 https://www.bilibili.com/video/BV1bm421n73Z/?share_source=copy_web&vd_source=c75cdcc6b49a06fd849f2d392e8e3218
@@ -48,3 +58,8 @@ V2.0.0
 3. 修复hook DLLMain导致栈不平衡bug
 4. 优化有多个相同文件时，白程序只输出一次
 5. 修复相同动态加载dll记录多次bug
+
+V2.0.1
+
+1. 修复只读文件，无法写入bug
+2. 新增全段扫描动态dll的-a参数，默认是扫rdata和rsrc段。提高工具的准确率

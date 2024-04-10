@@ -155,9 +155,41 @@ void searchDll(BYTE* buffer, PResultInfo result, LPCWSTR filePath, char* dllsNam
     strcat(fileFullPath, fileDir.c_str());
     int fileDirLength = fileDir.length();
     map<string, bool> postDllMap;
-    char* secNames[] = {".rdata", ".rsrc"};
+    char** secNames;
+    int cnt = 0;
 
-    for (int i = 0; i < 2; i++) {
+    if (c.isAllSectionSearch) {
+        PIMAGE_DOS_HEADER pDH = (PIMAGE_DOS_HEADER)buffer;
+        _IMAGE_SECTION_HEADER* sectionHeader;
+        IMAGE_FILE_HEADER fh;
+        
+        if (*(PWORD)((size_t)pDH + pDH->e_lfanew + 0x18) == IMAGE_NT_OPTIONAL_HDR32_MAGIC) {
+            PIMAGE_NT_HEADERS32  pNtH32 = PIMAGE_NT_HEADERS32((size_t)pDH + pDH->e_lfanew);
+            sectionHeader = (_IMAGE_SECTION_HEADER*)((UINT)pNtH32 + sizeof(_IMAGE_NT_HEADERS));
+            fh = pNtH32->FileHeader;
+        }
+        else {
+            PIMAGE_NT_HEADERS64 pNtH64 = PIMAGE_NT_HEADERS64((size_t)pDH + pDH->e_lfanew);
+            sectionHeader = (_IMAGE_SECTION_HEADER*)((UINT)pNtH64 + sizeof(_IMAGE_NT_HEADERS64));
+            fh = pNtH64->FileHeader;
+        }
+
+        char* temp[0x10];
+        secNames = (char**)malloc(sizeof(size_t) * fh.NumberOfSections);
+        while (cnt < fh.NumberOfSections) {
+            _IMAGE_SECTION_HEADER* section;
+            section = (_IMAGE_SECTION_HEADER*)((UINT)sectionHeader + sizeof(_IMAGE_SECTION_HEADER) * cnt);
+            temp[cnt++] = (char*)(section->Name);
+        }
+        secNames = temp;
+    }
+    else {
+        char* temp[] = { ".rdata", ".rsrc" };
+        secNames = temp;
+        cnt = 2;
+    }
+
+    for (int i = 0; i < cnt; i++) {
         BYTE* rdata = readSectionData(buffer, &rdataLength, secNames[i]);
         if (rdata != 0) {
             DWORD vaule, vaule1;
@@ -432,12 +464,18 @@ int readFileContext(string path, char** contexts)
     return payloadFileSize;
 }
 
-void saveFile(string filePath, char* buffer, DWORD fileSize)
+bool saveFile(string filePath, char* buffer, DWORD fileSize)
 {
     std::ofstream outFile;
     outFile.open(filePath, std::ios::binary | std::ios::trunc);
+    if (!outFile.is_open()) {
+        printf("Failed to open file for writing.\n");
+        return false;
+    }
     outFile.write(buffer, fileSize);
     outFile.close();
+
+    return true;
 }
 
 void str_to_lower(char* str) {
@@ -558,6 +596,12 @@ void repairReloc(char* buffer, DWORD* dataRva, int count, DWORD isClearEnd)
 
 int fixFile(string targetFilePath, DWORD exitCode)
 {
+    DWORD attributes = GetFileAttributesA(targetFilePath.c_str());
+    if (attributes != INVALID_FILE_ATTRIBUTES) {
+        attributes &= ~FILE_ATTRIBUTE_READONLY; // Çå³ýÖ»¶ÁÊôÐÔ
+        SetFileAttributesA(targetFilePath.c_str(), attributes);
+    }
+
     bool isExeFile = targetFilePath.back() == 'e' ? true : false;
 
     char* targetBuffer;
@@ -692,11 +736,11 @@ int fixFile(string targetFilePath, DWORD exitCode)
         memset(tmp_ImportTable, 0, 0x14);
     }
 
-    saveFile(targetFilePath, targetBuffer, fileSize);
-
+    bool isSucc = saveFile(targetFilePath, targetBuffer, fileSize);
+    
     delete[] targetBuffer;
 
-    return 0;
+    return isSucc;
 }
 
 bool fixExportTable(string targetFilePath, string sourceFilePath) {
@@ -827,7 +871,9 @@ string CopyFileToFolder(const std::string& sourceFilePath, const std::string& ta
 
     if (isNeedHook) {
         std::lock_guard<std::mutex> lock(mtx);
-        fixFile(targetFilePath, exitCode);
+        bool isSucc = fixFile(targetFilePath, exitCode);
+        if (!isSucc)
+            return "";
     }
 
     return targetFilePath;

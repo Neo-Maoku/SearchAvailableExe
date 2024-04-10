@@ -134,6 +134,7 @@ static void usage(void) {
     printf("       -s,--save: <bool>                       Whether to save available files, default is not to save.\n");
     printf("       -l,--load: <loadType>                   Dll loading method, 1 for static loading, 2 for dynamic loading, and 3 for both static and dynamic loading. Default value is 3.\n");
     printf("       -p,--pass: <bool>                       Filter system DLLs.\n");
+    printf("       -a,--pass: <int>                        Enable full-section scanning for dynamic DLLs by default, scanning rdata and rsrc segments.\n");
     exit(0);
 }
 
@@ -175,6 +176,7 @@ int main(int argc, char* argv[]) {
     c.dllCount = 1;
     c.bit = 96;
     c.loadType = 3;
+    c.isAllSectionSearch = 0;
 
     get_opt(argc, argv, OPT_TYPE_NONE, NULL, "h;?", "help", usage);
     get_opt(argc, argv, OPT_TYPE_STRING, c.output, "o", "output", NULL);
@@ -185,6 +187,7 @@ int main(int argc, char* argv[]) {
     get_opt(argc, argv, OPT_TYPE_FLAG, &c.isSaveFile, "s", "save", NULL);
     get_opt(argc, argv, OPT_TYPE_DEC, &c.loadType, "l", "load", NULL);
     get_opt(argc, argv, OPT_TYPE_FLAG, &c.isPassSystemDll, "p", "pass", NULL);
+    get_opt(argc, argv, OPT_TYPE_DEC, &c.isAllSectionSearch, "a", "search", NULL);
 
     ostream* output = &cout;
     ofstream outputFile;
