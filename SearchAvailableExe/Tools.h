@@ -28,6 +28,7 @@ typedef struct {
     int   loadType;
     bool  isSystemDll;
     size_t fileHash;
+    bool  isGUIWindow;
 } ResultInfo, * PResultInfo;
 
 #define STRING_MAX 256
@@ -41,6 +42,7 @@ typedef struct {
     int   loadType;
     bool  isPassSystemDll;
     int   isAllSectionSearch;
+    bool  isGUIWindow;
 } ARG_CONFIG, * PARG_CONFIG;
 
 BOOL VerifyFileSignature(LPCWSTR filePath);

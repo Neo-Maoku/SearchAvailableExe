@@ -37,12 +37,15 @@ https://github.com/Neo-Maoku/SearchAvailableExe/assets/26914648/72d7a8f6-c846-4d
 
 -a：是否开启全段扫描动态dll，默认是扫描rdata和rsrc段
 
+-g：是否过滤子系统不是GUI窗口，默认不过滤
+
 ```c
 SearchAvailableExe.exe
 SearchAvailableExe.exe -p -i "D:" -b 32
 SearchAvailableExe.exe -i "D:" -o result.txt -c 2
 SearchAvailableExe.exe -i "D:" -l 2 -w
 SearchAvailableExe.exe -s -a 1
+SearchAvailableExe.exe -p -a 1 -g
 ```
 
 B站地址：
@@ -63,3 +66,11 @@ V2.0.1
 
 1. 修复只读文件，无法写入bug
 2. 新增全段扫描动态dll的-a参数，默认是扫rdata和rsrc段。提高工具的准确率
+
+V2.0.2
+
+1. 修复需要保存文件，同时过滤系统dll时,满足过滤条件的文件夹未被删除bug
+2. 添加遍历磁盘扫描等待提示
+3. 修复upx加壳导致程序崩溃bug
+4. 添加GUI过滤参数，并优化输出
+5. 修复-a参数在64位程序下运行报错bug

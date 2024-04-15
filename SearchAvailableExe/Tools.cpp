@@ -165,12 +165,12 @@ void searchDll(BYTE* buffer, PResultInfo result, LPCWSTR filePath, char* dllsNam
         
         if (*(PWORD)((size_t)pDH + pDH->e_lfanew + 0x18) == IMAGE_NT_OPTIONAL_HDR32_MAGIC) {
             PIMAGE_NT_HEADERS32  pNtH32 = PIMAGE_NT_HEADERS32((size_t)pDH + pDH->e_lfanew);
-            sectionHeader = (_IMAGE_SECTION_HEADER*)((UINT)pNtH32 + sizeof(_IMAGE_NT_HEADERS));
+            sectionHeader = (_IMAGE_SECTION_HEADER*)((size_t)pNtH32 + sizeof(_IMAGE_NT_HEADERS));
             fh = pNtH32->FileHeader;
         }
         else {
             PIMAGE_NT_HEADERS64 pNtH64 = PIMAGE_NT_HEADERS64((size_t)pDH + pDH->e_lfanew);
-            sectionHeader = (_IMAGE_SECTION_HEADER*)((UINT)pNtH64 + sizeof(_IMAGE_NT_HEADERS64));
+            sectionHeader = (_IMAGE_SECTION_HEADER*)((size_t)pNtH64 + sizeof(_IMAGE_NT_HEADERS64));
             fh = pNtH64->FileHeader;
         }
 
@@ -178,7 +178,7 @@ void searchDll(BYTE* buffer, PResultInfo result, LPCWSTR filePath, char* dllsNam
         secNames = (char**)malloc(sizeof(size_t) * fh.NumberOfSections);
         while (cnt < fh.NumberOfSections) {
             _IMAGE_SECTION_HEADER* section;
-            section = (_IMAGE_SECTION_HEADER*)((UINT)sectionHeader + sizeof(_IMAGE_SECTION_HEADER) * cnt);
+            section = (_IMAGE_SECTION_HEADER*)((size_t)sectionHeader + sizeof(_IMAGE_SECTION_HEADER) * cnt);
             temp[cnt++] = (char*)(section->Name);
         }
         secNames = temp;
@@ -277,6 +277,7 @@ void printImportTableInfo(BYTE* buffer, PResultInfo result, LPCWSTR filePath)
         directory = pOH32->DataDirectory[1];
         THUNK_DATA_SIZE = 4;
         result->bit = 32;
+        result->isGUIWindow = pOH32->Subsystem == 3 ? 0 : 1;
     }
     else {
         PIMAGE_NT_HEADERS64 pNtH64 = PIMAGE_NT_HEADERS64((size_t)pDH + pDH->e_lfanew);
@@ -285,6 +286,7 @@ void printImportTableInfo(BYTE* buffer, PResultInfo result, LPCWSTR filePath)
         directory = pOH64->DataDirectory[1];
         THUNK_DATA_SIZE = 8;
         result->bit = 64;
+        result->isGUIWindow = pOH64->Subsystem == 3 ? 0 : 1;
     }
 
     PIMAGE_IMPORT_DESCRIPTOR ImportTable = PIMAGE_IMPORT_DESCRIPTOR(rvaToFOA(buffer, directory.VirtualAddress) + buffer);
@@ -309,6 +311,9 @@ void printImportTableInfo(BYTE* buffer, PResultInfo result, LPCWSTR filePath)
         PIMAGE_THUNK_DATA INT = PIMAGE_THUNK_DATA(rvaToFOA(buffer, ImportTable->OriginalFirstThunk) + buffer);
         PIMAGE_IMPORT_BY_NAME temp = { 0 };
         int count = 0;
+
+        if (ImportTable->OriginalFirstThunk == 0)
+            break;
         
         while (INT->u1.AddressOfData)//当遍历到的是最后一个是时候是会为0，所以随便遍历一个就好
         {
@@ -1008,6 +1013,10 @@ void RunPE(PResultInfo result) {
             result->isSystemDll = true;
     }
     
-    if (!(c.isSaveFile && result->exploitDllPath != ""))
+    if (c.isSaveFile) {
+        if(result->exploitDllPath == "" || (c.isPassSystemDll && result->isSystemDll))
+            while (!DeleteDirectory(folderPath.c_str())) {}
+    }
+    else
         while (!DeleteDirectory(folderPath.c_str())) {}
 }

@@ -64,6 +64,8 @@ bool isUnwanted(const PResultInfo result) {
 
     if (c.isWrite == 1 && result->isWrite == 0)
         return true;
+    if (c.isGUIWindow == 1 && result->isGUIWindow == 0)
+        return true;
     if ((c.bit == 32 && result->bit != 32) || (c.bit == 64 && result->bit != 64))
         return true;
     if (preSize > c.dllCount)
@@ -135,6 +137,7 @@ static void usage(void) {
     printf("       -l,--load: <loadType>                   Dll loading method, 1 for static loading, 2 for dynamic loading, and 3 for both static and dynamic loading. Default value is 3.\n");
     printf("       -p,--pass: <bool>                       Filter system DLLs.\n");
     printf("       -a,--pass: <int>                        Enable full-section scanning for dynamic DLLs by default, scanning rdata and rsrc segments.\n");
+    printf("       -g,--guiwindow: <bool>                  Whether to filter subsystems that are not GUI windows, default is not to filter.\n");
     exit(0);
 }
 
@@ -169,6 +172,14 @@ DWORD WINAPI MonitorThread(LPVOID lpParam) {
     return 0;
 }
 
+bool isNeedWait = true;
+void showWaiting() {
+    while (isNeedWait) {
+        std::cout << "遍历文件中，请稍等！  Working..." << std::endl;
+        std::this_thread::sleep_for(std::chrono::seconds(5));
+    }
+}
+
 int main(int argc, char* argv[]) {
     //处理传入的参数
     memset(&c, 0, sizeof(c));
@@ -188,6 +199,7 @@ int main(int argc, char* argv[]) {
     get_opt(argc, argv, OPT_TYPE_DEC, &c.loadType, "l", "load", NULL);
     get_opt(argc, argv, OPT_TYPE_FLAG, &c.isPassSystemDll, "p", "pass", NULL);
     get_opt(argc, argv, OPT_TYPE_DEC, &c.isAllSectionSearch, "a", "search", NULL);
+    get_opt(argc, argv, OPT_TYPE_FLAG, &c.isGUIWindow, "g", "guiwindow", NULL);
 
     ostream* output = &cout;
     ofstream outputFile;
@@ -200,6 +212,10 @@ int main(int argc, char* argv[]) {
         }
         output = &outputFile;
     }
+
+    //开启等待提示线程
+    thread waitingThread(showWaiting);
+
     //第一步：多线程递归遍历指定目录，筛选出带有签名的可执行文件，并获取可能需要加载dll信息等
     if (c.input[0] == 0) {
         for (char drive = 'A'; drive <= 'Z'; ++drive) {
@@ -215,6 +231,10 @@ int main(int argc, char* argv[]) {
 
     //根据指定条件对结果过滤
     results.erase(std::remove_if(results.begin(), results.end(), isUnwanted), results.end());
+
+    isNeedWait = false;
+    std::cout << "遍历文件完毕" << std::endl;
+    waitingThread.join();
 
     //创建线程，监听第二步运行时的报错弹窗，及时关闭
     HANDLE hThread = CreateThread(NULL, 0, MonitorThread, NULL, 0, NULL);
@@ -235,8 +255,8 @@ int main(int argc, char* argv[]) {
     *output << "找到可利用白文件：" << results.size() << "个" << endl;
 
     for (const auto& result : results) {
-        *output << result->filePath << endl;
-        *output << "程序位数: " << result->bit << " 目录是否可写: " << (result->isWrite==1 ? "是" : "否") << " Dll加载方式: " << (result->loadType == 1 ? "静态加载" : "动态加载") << endl;
+        *output << "可利用白程序: " << result->filePath << endl;
+        *output << "程序位数: " << result->bit << " 目录是否可写: " << (result->isWrite==1 ? "是" : "否") << " Dll加载方式: " << (result->loadType == 1 ? "静态加载" : "动态加载") << " 子系统类型: " << (result->isGUIWindow == true ? "GUI" : "CUI") << endl;
         *output << "可利用DLL: " << result->exploitDllPath << endl;
 
         if ((result->loadType == 1 && result->preLoadDlls.size() > 1) || (result->loadType == 2 && result->preLoadDlls.size() + result->postLoadDlls.size() > 1)) {
