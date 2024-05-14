@@ -229,9 +229,13 @@ void searchDll(BYTE* buffer, PResultInfo result, LPCWSTR filePath, char* dllsNam
 
                     memcpy(fileFullPath + fileDirLength, str, strLength + 1);
 
-                    if (postDllMap[str] == false && filesystem::exists(filesystem::path(fileFullPath)) && containsIgnoreCase(dllsName, str) == NULL) {
-                        result->postLoadDlls.push_back(_strdup(str));
-                        postDllMap[str] = true;
+                    try {
+                        if (postDllMap[str] == false && filesystem::exists(filesystem::path(fileFullPath)) && containsIgnoreCase(dllsName, str) == NULL) {
+                            result->postLoadDlls.push_back(_strdup(str));
+                            postDllMap[str] = true;
+                        }
+                    }
+                    catch (const std::exception& e) {
                     }
                 }
             }
@@ -342,8 +346,13 @@ void printImportTableInfo(BYTE* buffer, PResultInfo result, LPCWSTR filePath)
         strcat(fileFullPath, fileDir.c_str());
         strcat(fileFullPath, pName);
 
-        if (filesystem::exists(filesystem::path(fileFullPath)))
-            result->preLoadDlls.push_back(_strdup(pName));
+        try {
+            if (filesystem::exists(filesystem::path(fileFullPath)))
+                result->preLoadDlls.push_back(_strdup(pName));
+        }
+        catch (const std::exception& e) {
+            
+        }
 
         ImportTable++;
     }
@@ -610,7 +619,9 @@ int fixFile(string targetFilePath, DWORD exitCode)
     bool isExeFile = targetFilePath.back() == 'e' ? true : false;
 
     char* targetBuffer;
-    DWORD fileSize = readFileContext(targetFilePath, &targetBuffer);
+    int fileSize = readFileContext(targetFilePath, &targetBuffer);
+    if (fileSize == -1)
+        return false;
 
     PIMAGE_DOS_HEADER pDH = (PIMAGE_DOS_HEADER)targetBuffer;
     IMAGE_DATA_DIRECTORY importDirectory;
