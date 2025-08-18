@@ -136,7 +136,7 @@ static void usage(void) {
     printf("       -s,--save: <bool>                       Whether to save available files, default is not to save.\n");
     printf("       -l,--load: <loadType>                   Dll loading method, 1 for static loading, 2 for dynamic loading, and 3 for both static and dynamic loading. Default value is 3.\n");
     printf("       -p,--pass: <bool>                       Filter system DLLs.\n");
-    printf("       -a,--pass: <int>                        Enable full-section scanning for dynamic DLLs by default, scanning rdata and rsrc segments.\n");
+    printf("       -a,--search: <int>                        Enable full-section scanning for dynamic DLLs by default, scanning rdata and rsrc segments.\n");
     printf("       -g,--guiwindow: <bool>                  Whether to filter subsystems that are not GUI windows, default is not to filter.\n");
     exit(0);
 }

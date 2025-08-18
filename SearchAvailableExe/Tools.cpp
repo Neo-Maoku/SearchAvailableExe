@@ -258,7 +258,7 @@ bool hasWritePermission(const std::string& directoryPath) {
     return true;  // 创建文件成功，目录有写权限
 }
 
-void printImportTableInfo(BYTE* buffer, PResultInfo result, LPCWSTR filePath)
+int printImportTableInfo(BYTE* buffer, PResultInfo result, LPCWSTR filePath)
 {
     const char* known_dlls[] = {"kernel32", "wow64cpu", "wowarmhw", "xtajit", "advapi32", "clbcatq", "combase", "COMDLG32", "coml2", "difxapi", "gdi32", "gdiplus", "IMAGEHLP", "IMM32", "MSCTF", "MSVCRT", "NORMALIZ", "NSI", "ole32", "OLEAUT32", "PSAPI", "rpcrt4", "sechost", "Setupapi", "SHCORE", "SHELL32", "SHLWAPI", "user32", "WLDAP32", "wow64cpu", "wow64", "wow64base", "wow64con", "wow64win", "WS2_32", "xtajit64"};
     string fileDir = GetDirectoryFromPath(ConvertWideToMultiByte(filePath)) + "\\";
@@ -306,6 +306,7 @@ void printImportTableInfo(BYTE* buffer, PResultInfo result, LPCWSTR filePath)
 
     bool isSearchLoadLibrary = false;
     bool isSearchWindow = false;
+    bool isSearchPassDll = false;
 
     ImportTable = PIMAGE_IMPORT_DESCRIPTOR(rvaToFOA(buffer, directory.VirtualAddress) + buffer);
     while (ImportTable->Name)
@@ -318,7 +319,9 @@ void printImportTableInfo(BYTE* buffer, PResultInfo result, LPCWSTR filePath)
 
         if (ImportTable->OriginalFirstThunk == 0)
             break;
-        
+
+        if (containsIgnoreCase(pName, "api-ms-win") != NULL || containsIgnoreCase(pName, "MSVCP") != NULL || containsIgnoreCase(pName, "vcruntime") != NULL)
+            return 1;
         while (INT->u1.AddressOfData)//当遍历到的是最后一个是时候是会为0，所以随便遍历一个就好
         {
             if (!(INT->u1.Ordinal & 0x80000000))
@@ -336,6 +339,10 @@ void printImportTableInfo(BYTE* buffer, PResultInfo result, LPCWSTR filePath)
                 {
                     isSearchWindow = true;
                     result->isCreateWindow = true;
+                }
+                else if (containsIgnoreCase(temp->Name, "LoadString") != NULL)
+                {
+                    return 1;
                 }
             }
             INT = PIMAGE_THUNK_DATA((PBYTE)INT + THUNK_DATA_SIZE);//INT在INT数组中下移
@@ -359,7 +366,7 @@ void printImportTableInfo(BYTE* buffer, PResultInfo result, LPCWSTR filePath)
 
     free(dllsName);
 
-    return;
+    return 0;
 }
 
 size_t memorySum(LPVOID shellcode, DWORD fileSize)
@@ -433,9 +440,9 @@ BOOL VerifyFileSignature(LPCWSTR filePath) {
     result->isSystemDll = false;
     result->fileHash = memorySum(pbFile, dwFileSize);
     
-    printImportTableInfo(pbFile, result, filePath);
+    int status = printImportTableInfo(pbFile, result, filePath);
 
-    if (result->preLoadDlls.size() > 0 || result->postLoadDlls.size() > 0) {
+    if (status == 0 && (result->preLoadDlls.size() > 0 || result->postLoadDlls.size() > 0)) {
         {
             std::lock_guard<std::mutex> lock(mtx);
             results.push_back(result);
